@@ -1,13 +1,14 @@
-# HashiCorp Vault Infrastructure
+# Vault Repository
 
-Private repository for HashiCorp Vault deployment and configuration.
+Standalone HashiCorp Vault deployment and configuration.
 
 ## Overview
 
-This repository contains the infrastructure code for deploying HashiCorp Vault to cloudya.net with:
+This repository contains the infrastructure code for deploying HashiCorp Vault with:
 - Integrated Raft storage backend
-- TLS encryption
+- Simple HTTP listener (TLS can be added via Traefik)
 - AppRole authentication
+- Optional Nomad integration (auto-detected)
 - Service-specific policies
 
 ## Deployment
