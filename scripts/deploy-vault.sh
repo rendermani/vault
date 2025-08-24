@@ -405,9 +405,14 @@ configure_vault() {
     # Load root token if available
     if [[ -f /root/.vault/root-token ]]; then
         export VAULT_TOKEN=$(cat /root/.vault/root-token)
+    elif [[ -f /opt/vault/init.json ]]; then
+        export VAULT_TOKEN=$(jq -r '.root_token' /opt/vault/init.json 2>/dev/null)
     else
-        log_error "Root token not found. Please provide token."
-        return 1
+        log_warning "Root token not found. Vault may need initialization."
+        log_info "Skipping configuration that requires authentication."
+        log_info "Run 'vault operator init' or use --action init after deployment."
+        # Don't fail installation, just skip auth-required configuration
+        return 0
     fi
     
     # Check if Nomad is available for integration
