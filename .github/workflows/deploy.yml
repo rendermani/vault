@@ -1,0 +1,195 @@
+name: Deploy Vault to cloudya.net
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      action:
+        description: 'Deployment action'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - init
+          - unseal
+
+env:
+  VAULT_VERSION: "1.15.4"
+  DEPLOY_HOST: "cloudya.net"
+  DEPLOY_USER: "root"
+
+jobs:
+  deploy-vault:
+    name: Deploy Vault to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy Vault
+        if: ${{ inputs.action == 'deploy' }}
+        run: |
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            set -e
+            
+            # Create directories
+            mkdir -p /opt/vault/{bin,config,data,logs,tls}
+            
+            # Download Vault if not exists
+            if [ ! -f /opt/vault/bin/vault ]; then
+              echo "Downloading Vault ${VAULT_VERSION}..."
+              cd /tmp
+              wget -q https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip
+              unzip -q vault_${VAULT_VERSION}_linux_amd64.zip
+              mv vault /opt/vault/bin/
+              chmod +x /opt/vault/bin/vault
+              ln -sf /opt/vault/bin/vault /usr/local/bin/vault
+              rm vault_${VAULT_VERSION}_linux_amd64.zip
+            fi
+            
+            # Create Vault configuration
+            cat > /opt/vault/config/vault.hcl << 'VAULTCFG'
+            ui = true
+            disable_mlock = true
+
+            storage "raft" {
+              path = "/opt/vault/data"
+              node_id = "vault-1"
+            }
+
+            listener "tcp" {
+              address     = "0.0.0.0:8200"
+              tls_disable = true
+            }
+
+            api_addr = "http://cloudya.net:8200"
+            cluster_addr = "http://cloudya.net:8201"
+            VAULTCFG
+            
+            # Create systemd service
+            cat > /etc/systemd/system/vault.service << 'SYSTEMD'
+            [Unit]
+            Description=HashiCorp Vault
+            Documentation=https://www.vaultproject.io/docs/
+            Requires=network-online.target
+            After=network-online.target
+            ConditionFileNotEmpty=/opt/vault/config/vault.hcl
+            StartLimitIntervalSec=60
+            StartLimitBurst=3
+
+            [Service]
+            Type=notify
+            EnvironmentFile=/opt/vault/vault.env
+            User=root
+            Group=root
+            ProtectSystem=full
+            ProtectHome=read-only
+            PrivateTmp=yes
+            PrivateDevices=yes
+            SecureBits=keep-caps
+            AmbientCapabilities=CAP_IPC_LOCK
+            CapabilityBoundingSet=CAP_SYSLOG CAP_IPC_LOCK
+            NoNewPrivileges=yes
+            ExecStart=/opt/vault/bin/vault server -config=/opt/vault/config/vault.hcl
+            ExecReload=/bin/kill --signal HUP $MAINPID
+            KillMode=process
+            Restart=on-failure
+            RestartSec=5
+            TimeoutStopSec=30
+            LimitNOFILE=65536
+            LimitMEMLOCK=infinity
+            KillSignal=SIGINT
+
+            [Install]
+            WantedBy=multi-user.target
+            SYSTEMD
+            
+            # Create environment file
+            cat > /opt/vault/vault.env << 'ENVFILE'
+            VAULT_ADDR=http://127.0.0.1:8200
+            VAULT_API_ADDR=http://cloudya.net:8200
+            ENVFILE
+            
+            # Start Vault
+            systemctl daemon-reload
+            systemctl enable vault
+            systemctl restart vault
+            
+            # Wait for Vault to start
+            sleep 5
+            
+            # Check status
+            export VAULT_ADDR=http://127.0.0.1:8200
+            vault status || echo "Vault needs initialization"
+            
+            echo "Vault deployment complete!"
+          EOF
+      
+      - name: Initialize Vault
+        if: ${{ inputs.action == 'init' }}
+        run: |
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            set -e
+            export VAULT_ADDR=http://127.0.0.1:8200
+            
+            # Check if already initialized
+            if vault status 2>&1 | grep -q "Initialized.*true"; then
+              echo "Vault is already initialized"
+              exit 0
+            fi
+            
+            # Initialize Vault
+            echo "Initializing Vault..."
+            vault operator init \
+              -key-shares=5 \
+              -key-threshold=3 \
+              -format=json > /opt/vault/init.json
+            
+            chmod 600 /opt/vault/init.json
+            echo "Vault initialized! Keys saved to /opt/vault/init.json"
+            echo "IMPORTANT: Backup this file immediately and store securely!"
+          EOF
+      
+      - name: Unseal Vault
+        if: ${{ inputs.action == 'unseal' }}
+        run: |
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            set -e
+            export VAULT_ADDR=http://127.0.0.1:8200
+            
+            # Check if init file exists
+            if [ ! -f /opt/vault/init.json ]; then
+              echo "Init file not found. Please initialize Vault first."
+              exit 1
+            fi
+            
+            # Unseal Vault
+            echo "Unsealing Vault..."
+            for i in 1 2 3; do
+              KEY=$(jq -r ".unseal_keys_b64[$((i-1))]" /opt/vault/init.json)
+              vault operator unseal $KEY
+            done
+            
+            vault status
+            echo "Vault unsealed successfully!"
+          EOF
+      
+      - name: Cleanup SSH
+        if: always()
+        run: rm -f ~/.ssh/id_rsa
