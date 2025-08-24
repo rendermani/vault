@@ -1,0 +1,79 @@
+[
+{
+  "severity": "CRITICAL",
+  "title": "Hardcoded Secrets", 
+  "description": "Potential hardcoded secrets found in workflow file",
+  "recommendation": "Use GitHub Secrets for all sensitive data",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "MEDIUM",
+  "title": "Potential Log Exposure", 
+  "description": "Echo statements found that might expose sensitive data",
+  "recommendation": "Avoid echoing variables that might contain secrets",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "HIGH",
+  "title": "SSH Key Management Missing", 
+  "description": "No SSH key setup found in workflow",
+  "recommendation": "Implement proper SSH key management",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "MEDIUM",
+  "title": "SSH Security Configuration", 
+  "description": "StrictHostKeyChecking not explicitly configured",
+  "recommendation": "Consider configuring SSH security options",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "MEDIUM",
+  "title": "Root User Usage", 
+  "description": "Vault service configured to run as root user",
+  "recommendation": "Consider running Vault as dedicated vault user for better security",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "HIGH",
+  "title": "TLS Disabled", 
+  "description": "TLS is disabled for Vault listener",
+  "recommendation": "Enable TLS for production deployments",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "MEDIUM",
+  "title": "Open Network Binding", 
+  "description": "Vault configured to listen on all interfaces",
+  "recommendation": "Consider restricting listener to specific interfaces",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "LOW",
+  "title": "API Address Security", 
+  "description": "API address uses HTTP protocol",
+  "recommendation": "Use HTTPS for API addresses in production",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "MEDIUM",
+  "title": "Command Injection Risk", 
+  "description": "Unquoted variables found in shell commands (3 instances)",
+  "recommendation": "Quote all variables used in shell commands",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "HIGH",
+  "title": "Key Storage Location", 
+  "description": "Vault keys stored in filesystem (/opt/vault/init.json)",
+  "recommendation": "Consider more secure key storage solutions",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{
+  "severity": "HIGH",
+  "title": "Root Token Handling", 
+  "description": "Root token operations found in workflow",
+  "recommendation": "Minimize root token usage and ensure secure handling",
+  "timestamp": "2025-08-24T22:14:36+02:00"
+},
+{}]

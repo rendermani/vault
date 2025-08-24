@@ -1,6 +1,19 @@
-name: Deploy Vault to cloudya.net
+name: Deploy Vault to cloudya.net (Production Ready)
 
 on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+      - 'feature/**'
+      - 'hotfix/**'
+    paths:
+      - '.github/workflows/deploy.yml'
+      - 'scripts/**'
+      - 'config/**'
+      - 'policies/**'
+      
   workflow_dispatch:
     inputs:
       environment:
@@ -20,18 +33,182 @@ on:
           - deploy
           - init
           - unseal
+          - rotate-keys
+          - backup
+          - health-check
+      force_deploy:
+        description: 'Force deployment even if no changes detected'
+        required: false
+        default: false
+        type: boolean
 
 env:
-  VAULT_VERSION: "1.15.4"
+  VAULT_VERSION: "1.17.3"
   DEPLOY_HOST: "cloudya.net"
   DEPLOY_USER: "root"
+  VAULT_CONFIG_PATH: "/etc/vault.d"
+  BACKUP_RETENTION_DAYS: "30"
+  HEALTH_CHECK_TIMEOUT: "300"
+  DEPLOYMENT_TIMEOUT: "900"
 
 jobs:
-  deploy-vault:
-    name: Deploy Vault to ${{ inputs.environment }}
+  pre-deployment-checks:
+    name: Pre-deployment Validation
     runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.determine-env.outputs.environment }}
+      action: ${{ steps.determine-env.outputs.action }}
+      changes_detected: ${{ steps.change-detection.outputs.changes_detected }}
+      deployment_needed: ${{ steps.change-detection.outputs.deployment_needed }}
     
     steps:
+      - name: Determine Environment
+        id: determine-env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "action=${{ inputs.action }}" >> $GITHUB_OUTPUT
+          else
+            # Push trigger - determine environment from branch
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              echo "environment=production" >> $GITHUB_OUTPUT
+            else
+              echo "environment=staging" >> $GITHUB_OUTPUT
+            fi
+            echo "action=deploy" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Display Deployment Info
+        run: |
+          echo "🚀 Deploying to: ${{ steps.determine-env.outputs.environment }}"
+          echo "📦 Action: ${{ steps.determine-env.outputs.action }}"
+          echo "🌳 Branch: ${{ github.ref_name }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "⏱️ Started at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+      
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for change detection
+      
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+          
+      - name: Test SSH Connection
+        run: |
+          timeout 30 ssh -o ConnectTimeout=10 ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "echo 'SSH connection successful'"
+          
+      - name: Change Detection & No-Op Analysis
+        id: change-detection
+        run: |
+          echo "🔍 Analyzing changes..."
+          
+          # Get current remote version and config checksums
+          REMOTE_STATE=$(ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
+            if command -v vault >/dev/null 2>&1; then
+              CURRENT_VERSION=$(vault version 2>/dev/null | grep -oP "Vault v\K[0-9.]+" || echo "unknown")
+              if [ -f /etc/vault.d/vault.hcl ]; then
+                CONFIG_CHECKSUM=$(md5sum /etc/vault.d/vault.hcl | cut -d" " -f1)
+              else
+                CONFIG_CHECKSUM="none"
+              fi
+              VAULT_STATUS=$(systemctl is-active vault 2>/dev/null || echo "inactive")
+              echo "${CURRENT_VERSION}:${CONFIG_CHECKSUM}:${VAULT_STATUS}"
+            else
+              echo "not-installed:none:none"
+            fi
+          ')
+          
+          IFS=':' read -r REMOTE_VERSION REMOTE_CONFIG_CHECKSUM VAULT_STATUS <<< "$REMOTE_STATE"
+          echo "Remote state: Version=$REMOTE_VERSION, Config=$REMOTE_CONFIG_CHECKSUM, Status=$VAULT_STATUS"
+          
+          # Calculate local config checksum
+          LOCAL_CONFIG_CHECKSUM=$(md5sum config/vault.hcl | cut -d' ' -f1)
+          echo "Local config checksum: $LOCAL_CONFIG_CHECKSUM"
+          
+          # Check for changes
+          CHANGES_DETECTED="false"
+          DEPLOYMENT_NEEDED="false"
+          
+          if [ "${{ inputs.force_deploy }}" == "true" ]; then
+            echo "Force deployment requested"
+            CHANGES_DETECTED="true"
+            DEPLOYMENT_NEEDED="true"
+          elif [ "$REMOTE_VERSION" != "${{ env.VAULT_VERSION }}" ]; then
+            echo "Version change detected: $REMOTE_VERSION -> ${{ env.VAULT_VERSION }}"
+            CHANGES_DETECTED="true"
+            DEPLOYMENT_NEEDED="true"
+          elif [ "$REMOTE_CONFIG_CHECKSUM" != "$LOCAL_CONFIG_CHECKSUM" ]; then
+            echo "Configuration change detected"
+            CHANGES_DETECTED="true"
+            DEPLOYMENT_NEEDED="true"
+          elif [ "$VAULT_STATUS" != "active" ] && [ "${{ steps.determine-env.outputs.action }}" == "deploy" ]; then
+            echo "Vault service not active, deployment needed"
+            CHANGES_DETECTED="true"
+            DEPLOYMENT_NEEDED="true"
+          else
+            echo "No changes detected - no-op scenario"
+          fi
+          
+          echo "changes_detected=$CHANGES_DETECTED" >> $GITHUB_OUTPUT
+          echo "deployment_needed=$DEPLOYMENT_NEEDED" >> $GITHUB_OUTPUT
+          echo "remote_version=$REMOTE_VERSION" >> $GITHUB_OUTPUT
+          echo "vault_status=$VAULT_STATUS" >> $GITHUB_OUTPUT
+          
+      - name: Pre-deployment Health Check
+        if: steps.change-detection.outputs.deployment_needed == 'true'
+        run: |
+          echo "🏥 Performing pre-deployment health checks..."
+          
+          # Check disk space
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
+            DISK_USAGE=$(df /var/lib/vault 2>/dev/null | tail -1 | awk "{print \$5}" | sed "s/%//")
+            if [ -z "$DISK_USAGE" ]; then
+              DISK_USAGE=$(df / | tail -1 | awk "{print \$5}" | sed "s/%//")
+            fi
+            
+            if [ "$DISK_USAGE" -gt 90 ]; then
+              echo "❌ Insufficient disk space: ${DISK_USAGE}% used"
+              exit 1
+            fi
+            echo "✅ Disk space OK: ${DISK_USAGE}% used"
+          '
+          
+          # Check memory
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
+            MEMORY_USAGE=$(free | grep Mem | awk "{printf \"%.0f\", \$3/\$2 * 100.0}")
+            if [ "$MEMORY_USAGE" -gt 90 ]; then
+              echo "⚠️ High memory usage: ${MEMORY_USAGE}%"
+            else
+              echo "✅ Memory usage OK: ${MEMORY_USAGE}%"
+            fi
+          '
+          
+          echo "✅ Pre-deployment health checks passed"
+
+  deploy-vault:
+    name: Deploy Vault to ${{ needs.pre-deployment-checks.outputs.environment }}
+    runs-on: ubuntu-latest
+    needs: pre-deployment-checks
+    environment: ${{ needs.pre-deployment-checks.outputs.environment }}
+    timeout-minutes: 15
+    
+    if: needs.pre-deployment-checks.outputs.deployment_needed == 'true' || needs.pre-deployment-checks.outputs.action != 'deploy'
+    
+    steps:
+      - name: Early Exit for No-Op
+        if: needs.pre-deployment-checks.outputs.deployment_needed == 'false' && needs.pre-deployment-checks.outputs.action == 'deploy'
+        run: |
+          echo "✅ No changes detected - skipping deployment (no-op)"
+          echo "Remote version: ${{ needs.pre-deployment-checks.outputs.remote_version }}"
+          echo "Target version: ${{ env.VAULT_VERSION }}"
+          echo "Vault status: ${{ needs.pre-deployment-checks.outputs.vault_status }}"
+          exit 0
+          
       - name: Checkout code
         uses: actions/checkout@v4
       
@@ -41,155 +218,296 @@ jobs:
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ env.DEPLOY_HOST }} >> ~/.ssh/known_hosts
-      
-      - name: Deploy Vault
-        if: ${{ inputs.action == 'deploy' }}
+          
+      - name: Copy deployment script
         run: |
-          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
-            set -e
-            
-            # Create directories
-            mkdir -p /opt/vault/{bin,config,data,logs,tls}
-            
-            # Download Vault if not exists
-            if [ ! -f /opt/vault/bin/vault ]; then
-              echo "Downloading Vault ${VAULT_VERSION}..."
-              cd /tmp
-              wget -q https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip
-              unzip -q vault_${VAULT_VERSION}_linux_amd64.zip
-              mv vault /opt/vault/bin/
-              chmod +x /opt/vault/bin/vault
-              ln -sf /opt/vault/bin/vault /usr/local/bin/vault
-              rm vault_${VAULT_VERSION}_linux_amd64.zip
-            fi
-            
-            # Create Vault configuration
-            cat > /opt/vault/config/vault.hcl << 'VAULTCFG'
-            ui = true
-            disable_mlock = true
-
-            storage "raft" {
-              path = "/opt/vault/data"
-              node_id = "vault-1"
-            }
-
-            listener "tcp" {
-              address     = "0.0.0.0:8200"
-              tls_disable = true
-            }
-
-            api_addr = "http://cloudya.net:8200"
-            cluster_addr = "http://cloudya.net:8201"
-            VAULTCFG
-            
-            # Create systemd service
-            cat > /etc/systemd/system/vault.service << 'SYSTEMD'
-            [Unit]
-            Description=HashiCorp Vault
-            Documentation=https://www.vaultproject.io/docs/
-            Requires=network-online.target
-            After=network-online.target
-            ConditionFileNotEmpty=/opt/vault/config/vault.hcl
-            StartLimitIntervalSec=60
-            StartLimitBurst=3
-
-            [Service]
-            Type=notify
-            EnvironmentFile=/opt/vault/vault.env
-            User=root
-            Group=root
-            ProtectSystem=full
-            ProtectHome=read-only
-            PrivateTmp=yes
-            PrivateDevices=yes
-            SecureBits=keep-caps
-            AmbientCapabilities=CAP_IPC_LOCK
-            CapabilityBoundingSet=CAP_SYSLOG CAP_IPC_LOCK
-            NoNewPrivileges=yes
-            ExecStart=/opt/vault/bin/vault server -config=/opt/vault/config/vault.hcl
-            ExecReload=/bin/kill --signal HUP $MAINPID
-            KillMode=process
-            Restart=on-failure
-            RestartSec=5
-            TimeoutStopSec=30
-            LimitNOFILE=65536
-            LimitMEMLOCK=infinity
-            KillSignal=SIGINT
-
-            [Install]
-            WantedBy=multi-user.target
-            SYSTEMD
-            
-            # Create environment file
-            cat > /opt/vault/vault.env << 'ENVFILE'
-            VAULT_ADDR=http://127.0.0.1:8200
-            VAULT_API_ADDR=http://cloudya.net:8200
-            ENVFILE
-            
-            # Start Vault
-            systemctl daemon-reload
-            systemctl enable vault
-            systemctl restart vault
-            
-            # Wait for Vault to start
-            sleep 5
-            
-            # Check status
-            export VAULT_ADDR=http://127.0.0.1:8200
-            vault status || echo "Vault needs initialization"
-            
-            echo "Vault deployment complete!"
-          EOF
+          scp scripts/deploy-vault.sh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:/tmp/
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "chmod +x /tmp/deploy-vault.sh"
+      
+      - name: Create Backup
+        if: needs.pre-deployment-checks.outputs.action == 'deploy'
+        run: |
+          echo "💾 Creating backup before deployment..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "/tmp/deploy-vault.sh --action backup --environment ${{ needs.pre-deployment-checks.outputs.environment }}"
+          
+      - name: Deploy Vault
+        if: needs.pre-deployment-checks.outputs.action == 'deploy'
+        id: deploy-vault
+        run: |
+          echo "🚀 Deploying Vault ${{ env.VAULT_VERSION }} to ${{ needs.pre-deployment-checks.outputs.environment }}..."
+          
+          # Copy configuration files
+          scp config/vault.hcl ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:/tmp/vault.hcl
+          
+          # Execute deployment with timeout
+          timeout ${{ env.DEPLOYMENT_TIMEOUT }} ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+            /tmp/deploy-vault.sh \
+              --action install \
+              --environment ${{ needs.pre-deployment-checks.outputs.environment }} \
+              --version ${{ env.VAULT_VERSION }}
+          " || {
+            echo "❌ Deployment failed or timed out"
+            echo "deployment_status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          }
+          
+          echo "deployment_status=success" >> $GITHUB_OUTPUT
+          echo "✅ Deployment completed successfully"
       
       - name: Initialize Vault
-        if: ${{ inputs.action == 'init' }}
+        if: needs.pre-deployment-checks.outputs.action == 'init'
         run: |
-          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
-            set -e
-            export VAULT_ADDR=http://127.0.0.1:8200
+          echo "🔐 Initializing Vault..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+            export VAULT_ADDR=http://localhost:8200
             
             # Check if already initialized
-            if vault status 2>&1 | grep -q "Initialized.*true"; then
-              echo "Vault is already initialized"
+            if vault status 2>&1 | grep -q 'Initialized.*true'; then
+              echo '✅ Vault is already initialized'
               exit 0
             fi
             
-            # Initialize Vault
-            echo "Initializing Vault..."
+            # Create backup before initialization
+            /tmp/deploy-vault.sh --action backup --environment ${{ needs.pre-deployment-checks.outputs.environment }}
+            
+            # Initialize with the deploy script's logic
+            echo 'Initializing Vault...'
             vault operator init \
               -key-shares=5 \
               -key-threshold=3 \
-              -format=json > /opt/vault/init.json
+              -format=json > /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json
             
-            chmod 600 /opt/vault/init.json
-            echo "Vault initialized! Keys saved to /opt/vault/init.json"
-            echo "IMPORTANT: Backup this file immediately and store securely!"
-          EOF
+            # Extract and save root token separately
+            jq -r '.root_token' /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json > /root/.vault/root-token
+            chmod 600 /root/.vault/root-token /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json
+            
+            echo '✅ Vault initialized successfully!'
+            echo '📁 Keys saved to /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json'
+            echo '⚠️ IMPORTANT: Backup these files immediately and store securely!'
+          "
       
       - name: Unseal Vault
-        if: ${{ inputs.action == 'unseal' }}
+        if: needs.pre-deployment-checks.outputs.action == 'unseal'
         run: |
-          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
-            set -e
-            export VAULT_ADDR=http://127.0.0.1:8200
+          echo "🔓 Unsealing Vault..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+            export VAULT_ADDR=http://localhost:8200
             
             # Check if init file exists
-            if [ ! -f /opt/vault/init.json ]; then
-              echo "Init file not found. Please initialize Vault first."
+            if [ ! -f /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json ]; then
+              echo '❌ Init file not found. Please initialize Vault first.'
               exit 1
             fi
             
-            # Unseal Vault
-            echo "Unsealing Vault..."
+            # Check if already unsealed
+            if ! vault status 2>&1 | grep -q 'Sealed.*true'; then
+              echo '✅ Vault is already unsealed'
+              exit 0
+            fi
+            
+            # Unseal Vault with first 3 keys
+            echo 'Unsealing Vault...'
             for i in 1 2 3; do
-              KEY=$(jq -r ".unseal_keys_b64[$((i-1))]" /opt/vault/init.json)
-              vault operator unseal $KEY
+              KEY=\$(jq -r \".unseal_keys_b64[\$((i-1))]\" /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json)
+              vault operator unseal \$KEY
             done
             
             vault status
-            echo "Vault unsealed successfully!"
-          EOF
+            echo '✅ Vault unsealed successfully!'
+          "
       
-      - name: Cleanup SSH
+      - name: Backup Vault
+        if: needs.pre-deployment-checks.outputs.action == 'backup'
+        run: |
+          echo "💾 Creating Vault backup..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "/tmp/deploy-vault.sh --action backup --environment ${{ needs.pre-deployment-checks.outputs.environment }}"
+          echo "✅ Backup completed successfully"
+          
+      - name: Rotate Keys
+        if: needs.pre-deployment-checks.outputs.action == 'rotate-keys'
+        run: |
+          echo "🔄 Starting key rotation process..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+            export VAULT_ADDR=http://localhost:8200
+            
+            echo '⚠️ Key Rotation Process Starting...'
+            echo 'This will generate new unseal keys and recovery keys.'
+            echo ''
+            
+            # Pre-rotation checks
+            if ! vault status 2>&1 | grep -q 'Initialized.*true'; then
+              echo '❌ Vault is not initialized'
+              exit 1
+            fi
+            
+            if vault status 2>&1 | grep -q 'Sealed.*true'; then
+              echo '❌ Vault is sealed. Please unseal first.'
+              exit 1
+            fi
+            
+            # Check if we have a root token
+            if [ ! -f /root/.vault/root-token ]; then
+              echo '❌ Root token not found. Cannot proceed with rotation.'
+              exit 1
+            fi
+            
+            # Create comprehensive backup before rotation
+            /tmp/deploy-vault.sh --action backup --environment ${{ needs.pre-deployment-checks.outputs.environment }}
+            
+            # Get root token
+            ROOT_TOKEN=\$(cat /root/.vault/root-token)
+            export VAULT_TOKEN=\"\$ROOT_TOKEN\"
+            
+            # Generate new root token
+            echo '🔄 Generating new root token...'
+            NEW_ROOT_TOKEN=\$(vault token create -policy=root -format=json | jq -r '.auth.client_token')
+            
+            # Save new token
+            echo \"\$NEW_ROOT_TOKEN\" > /root/.vault/root-token
+            chmod 600 /root/.vault/root-token
+            
+            # Update init file with new token
+            if [ -f /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json ]; then
+              jq --arg token \"\$NEW_ROOT_TOKEN\" '.root_token = \$token' /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json > /tmp/init-new.json
+              mv /tmp/init-new.json /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json
+              chmod 600 /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json
+            fi
+            
+            # Revoke old root token
+            export VAULT_TOKEN=\"\$NEW_ROOT_TOKEN\"
+            vault token revoke \"\$ROOT_TOKEN\"
+            
+            echo '✅ Root token rotated successfully'
+            echo ''
+            echo '⚠️ IMPORTANT: Manual rekey operation required for unseal keys'
+            echo 'Run these commands manually:'
+            echo '  vault operator rekey -init -key-shares=5 -key-threshold=3'
+            echo '  vault operator rekey (provide current unseal keys)'
+            echo ''
+            echo '📝 New root token saved to /root/.vault/root-token'
+          "
+      - name: Rollback on Failure
+        if: failure() && steps.deploy-vault.outputs.deployment_status == 'failed'
+        run: |
+          echo "🔄 Deployment failed, initiating rollback..."
+          
+          # Find latest backup
+          LATEST_BACKUP=$(ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
+            find /backups/vault -name "*" -type d | sort -r | head -1
+          ')
+          
+          if [ -n "$LATEST_BACKUP" ]; then
+            echo "📦 Restoring from backup: $LATEST_BACKUP"
+            ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+              # Stop current vault
+              systemctl stop vault 2>/dev/null || true
+              
+              # Restore configuration
+              if [ -f $LATEST_BACKUP/vault-config.tar.gz ]; then
+                tar -xzf $LATEST_BACKUP/vault-config.tar.gz -C /
+                echo '✅ Configuration restored'
+              fi
+              
+              # Restart vault
+              systemctl start vault
+              
+              # Wait and check status
+              sleep 10
+              if systemctl is-active vault; then
+                echo '✅ Rollback successful'
+              else
+                echo '❌ Rollback failed - manual intervention required'
+                exit 1
+              fi
+            "
+          else
+            echo "❌ No backup found for rollback"
+          fi
+          
+      - name: Post-deployment Health Check
+        if: success() && needs.pre-deployment-checks.outputs.action == 'deploy'
+        timeout-minutes: 5
+        run: |
+          echo "🏥 Performing comprehensive health checks..."
+          
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
+            export VAULT_ADDR=http://localhost:8200
+            
+            # Wait for Vault to be ready
+            for i in {1..30}; do
+              if curl -f -s http://localhost:8200/v1/sys/health >/dev/null; then
+                break
+              fi
+              echo "Waiting for Vault to be ready... ($i/30)"
+              sleep 10
+            done
+            
+            # Comprehensive health checks
+            echo "🔍 Checking Vault health endpoint..."
+            HEALTH_STATUS=$(curl -f -s http://localhost:8200/v1/sys/health | jq -r ".initialized,.sealed")
+            echo "Health status: $HEALTH_STATUS"
+            
+            echo "🔍 Checking systemd service status..."
+            systemctl status vault --no-pager
+            
+            echo "🔍 Checking Vault version..."
+            vault version
+            
+            echo "🔍 Checking Vault status..."
+            vault status
+            
+            echo "🔍 Checking disk space..."
+            df -h /var/lib/vault
+            
+            echo "🔍 Checking service logs (last 10 lines)..."
+            journalctl -u vault --no-pager -n 10
+            
+            echo "✅ All health checks passed"
+          '
+          
+      - name: Clean up backup retention
+        if: success()
+        run: |
+          echo "🧹 Cleaning up old backups..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+            find /backups/vault -type d -mtime +${{ env.BACKUP_RETENTION_DAYS }} -exec rm -rf {} + 2>/dev/null || true
+            echo 'Backup cleanup completed'
+          "
+          
+      - name: Health Check Only
+        if: needs.pre-deployment-checks.outputs.action == 'health-check'
+        run: |
+          echo "🏥 Performing standalone health check..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '/tmp/deploy-vault.sh --action check'
+          
+      - name: Cleanup SSH and temp files
         if: always()
-        run: rm -f ~/.ssh/id_rsa
+        run: |
+          # Remove SSH key
+          rm -f ~/.ssh/id_rsa
+          
+          # Clean up remote temp files
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
+            rm -f /tmp/deploy-vault.sh /tmp/vault.hcl
+          ' || true
+          
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "📊 Deployment Summary"
+          echo "===================="
+          echo "Environment: ${{ needs.pre-deployment-checks.outputs.environment }}"
+          echo "Action: ${{ needs.pre-deployment-checks.outputs.action }}"
+          echo "Target Version: ${{ env.VAULT_VERSION }}"
+          echo "Changes Detected: ${{ needs.pre-deployment-checks.outputs.changes_detected }}"
+          echo "Deployment Needed: ${{ needs.pre-deployment-checks.outputs.deployment_needed }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Completed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment completed successfully"
+          else
+            echo "❌ Deployment failed"
+          fi

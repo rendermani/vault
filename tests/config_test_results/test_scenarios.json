@@ -1,0 +1,217 @@
+{
+  "configuration_change_tests": {
+    "test_date": "2024-08-24",
+    "vault_version": "1.17.3",
+    "deployment_target": "cloudya.net",
+    "test_categories": {
+      "vault_hcl_changes": {
+        "scenarios": [
+          {
+            "scenario": "log_level_change",
+            "description": "Changing log level from info to debug",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": true,
+            "data_preserved": true,
+            "risk_level": "low",
+            "requires_downtime": true,
+            "downtime_estimate": "5-15 seconds"
+          },
+          {
+            "scenario": "telemetry_update", 
+            "description": "Updating telemetry configuration",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": true,
+            "data_preserved": true,
+            "risk_level": "low",
+            "requires_downtime": true,
+            "downtime_estimate": "5-15 seconds"
+          },
+          {
+            "scenario": "listener_modification",
+            "description": "Modifying listener settings (port/address)",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": true,
+            "data_preserved": true,
+            "risk_level": "high",
+            "requires_downtime": true,
+            "downtime_estimate": "30+ seconds",
+            "warnings": [
+              "Port change will break existing connections",
+              "API address must be updated accordingly",
+              "Load balancer configuration may need updates"
+            ]
+          },
+          {
+            "scenario": "storage_config_change",
+            "description": "Changing storage configuration path",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": true,
+            "data_preserved": false,
+            "risk_level": "critical",
+            "requires_downtime": true,
+            "downtime_estimate": "Extended (manual recovery)",
+            "warnings": [
+              "CRITICAL: Storage path change will lose all data",
+              "Manual data migration required",
+              "Service may fail to start with new path"
+            ]
+          },
+          {
+            "scenario": "cluster_address_update",
+            "description": "Updating cluster addresses",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": true,
+            "data_preserved": true,
+            "risk_level": "medium",
+            "requires_downtime": true,
+            "downtime_estimate": "15-30 seconds",
+            "notes": [
+              "DNS changes may affect connectivity",
+              "Load balancer updates may be needed",
+              "Cluster formation may be impacted"
+            ]
+          }
+        ]
+      },
+      "systemd_service_changes": {
+        "scenarios": [
+          {
+            "scenario": "environment_file_update",
+            "description": "Adding/modifying environment variables",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": true,
+            "data_preserved": true,
+            "risk_level": "low",
+            "requires_downtime": true,
+            "notes": ["Environment changes take effect on restart"]
+          },
+          {
+            "scenario": "user_group_change",
+            "description": "Changing service user/group",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": true,
+            "data_preserved": false,
+            "risk_level": "high",
+            "requires_downtime": true,
+            "warnings": [
+              "File permissions need adjustment",
+              "Data directory ownership must change",
+              "Service may fail to start with new user"
+            ]
+          },
+          {
+            "scenario": "restart_policy_change",
+            "description": "Modifying restart and failure policies",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": false,
+            "data_preserved": true,
+            "risk_level": "low",
+            "requires_downtime": false,
+            "notes": ["Takes effect on next service start"]
+          }
+        ]
+      },
+      "policy_changes": {
+        "scenarios": [
+          {
+            "scenario": "new_policy_addition",
+            "description": "Adding a new policy file",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": false,
+            "data_preserved": true,
+            "risk_level": "low",
+            "requires_downtime": false,
+            "deployment_method": "hot_reload_via_api",
+            "notes": ["Policies can be loaded via Vault API without restart"]
+          },
+          {
+            "scenario": "existing_policy_modification",
+            "description": "Modifying existing policy permissions",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": false,
+            "data_preserved": true,
+            "risk_level": "medium",
+            "requires_downtime": false,
+            "deployment_method": "hot_reload_via_api",
+            "notes": ["Active tokens retain old permissions until renewal"]
+          },
+          {
+            "scenario": "policy_deletion",
+            "description": "Removing a policy file",
+            "change_detected": true,
+            "backup_created": false,
+            "service_restarted": false,
+            "data_preserved": true,
+            "risk_level": "high",
+            "requires_downtime": false,
+            "deployment_method": "hot_reload_via_api",
+            "warnings": ["May break existing tokens using this policy"]
+          }
+        ]
+      }
+    },
+    "workflow_analysis": {
+      "github_workflow_backup": false,
+      "deploy_script_backup": true,
+      "configuration_validation": false,
+      "rollback_mechanism": false,
+      "health_checks": "basic",
+      "path_consistency": false,
+      "workflow_uses_deploy_script": false
+    },
+    "integration_issues": [
+      {
+        "issue": "Duplicate Configuration Logic",
+        "description": "GitHub workflow has inline configuration while deploy script has separate logic",
+        "impact": "Maintenance burden and potential inconsistencies",
+        "severity": "high"
+      },
+      {
+        "issue": "Path Inconsistencies", 
+        "description": "Workflow uses /opt/vault/, script uses /etc/vault.d/",
+        "impact": "Configuration conflicts and deployment failures",
+        "severity": "high"
+      },
+      {
+        "issue": "No Configuration Validation",
+        "description": "Neither workflow nor script validates configuration before deployment",
+        "impact": "Risk of deploying invalid configurations",
+        "severity": "critical"
+      },
+      {
+        "issue": "Missing Backup in Workflow",
+        "description": "GitHub workflow doesn't create backups before changes",
+        "impact": "No recovery option on deployment failure",
+        "severity": "critical"
+      }
+    ],
+    "recommendations": {
+      "critical_priority": [
+        "Implement configuration validation before deployment",
+        "Add backup creation to GitHub workflow",
+        "Implement automated rollback mechanism",
+        "Standardize file paths between workflow and script"
+      ],
+      "high_priority": [
+        "Use deploy-vault.sh script instead of inline deployment",
+        "Add comprehensive health checks after deployment",
+        "Implement configuration templating for environments"
+      ],
+      "medium_priority": [
+        "Add monitoring and alerting for deployment failures",
+        "Implement graceful service restart mechanisms",
+        "Add deployment audit logging"
+      ]
+    }
+  }
+}
