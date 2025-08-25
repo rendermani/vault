@@ -394,7 +394,7 @@ log_level  = "INFO"
 server {
   enabled          = true
   bootstrap_expect = 1
-  encrypt         = "$(nomad operator keygen)"
+  encrypt         = "$(nomad operator gossip keyring generate)"
 }
 
 client {
