@@ -104,6 +104,12 @@ Bootstrap Process:
   - Migrates from temporary tokens to Vault-managed tokens
   - Deploys Traefik with full Vault integration
 
+CI/CD Environment Support:
+  - Automatically detects CI environments (GitHub Actions, GitLab CI, etc.)
+  - Skips interactive confirmation prompts in CI environments
+  - Uses environment variables: CI, GITHUB_ACTIONS, TERM, TTY detection
+  - Set SKIP_BOOTSTRAP_CONFIRMATION=false to force manual confirmation
+
 EOF
 }
 
@@ -265,6 +271,21 @@ check_prerequisites() {
     log_success "Prerequisites check passed"
 }
 
+# Check if running in CI environment
+is_ci_environment() {
+    # Check for common CI environment variables
+    [[ -n "${CI:-}" ]] || \
+    [[ -n "${GITHUB_ACTIONS:-}" ]] || \
+    [[ -n "${GITLAB_CI:-}" ]] || \
+    [[ -n "${JENKINS_URL:-}" ]] || \
+    [[ -n "${BUILDKITE:-}" ]] || \
+    [[ -n "${TRAVIS:-}" ]] || \
+    [[ -n "${CIRCLECI:-}" ]] || \
+    [[ "$TERM" == "dumb" ]] || \
+    [[ ! -t 0 ]] || \
+    [[ ! -t 1 ]]
+}
+
 # Determine if this is a bootstrap deployment
 determine_deployment_strategy() {
     local is_bootstrap=false
@@ -287,11 +308,32 @@ determine_deployment_strategy() {
             log_warning "- Reset all secrets and tokens" 
             log_warning "- Reinitialize all services"
             echo ""
-            read -p "Are you sure you want to continue? [y/N]: " -n 1 -r
-            echo ""
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                log_info "Bootstrap cancelled by user"
-                exit 0
+            
+            # Skip confirmation in CI environments
+            if is_ci_environment; then
+                log_info "CI environment detected - proceeding with bootstrap deployment automatically"
+                log_info "Environment variables detected:"
+                [[ -n "${CI:-}" ]] && log_debug "  CI=$CI"
+                [[ -n "${GITHUB_ACTIONS:-}" ]] && log_debug "  GITHUB_ACTIONS=$GITHUB_ACTIONS"
+                [[ "$TERM" == "dumb" ]] && log_debug "  TERM=$TERM"
+                [[ ! -t 0 ]] && log_debug "  stdin is not a terminal"
+                [[ ! -t 1 ]] && log_debug "  stdout is not a terminal"
+                log_info "To prevent automatic bootstrap, set FORCE_BOOTSTRAP=false or use --dry-run"
+                
+                # Additional safety: respect explicit SKIP_BOOTSTRAP_CONFIRMATION
+                if [[ "${SKIP_BOOTSTRAP_CONFIRMATION:-}" == "false" ]]; then
+                    log_error "SKIP_BOOTSTRAP_CONFIRMATION is explicitly set to false"
+                    log_error "Bootstrap requires manual confirmation but running in CI environment"
+                    log_error "Either run with --force-bootstrap or set SKIP_BOOTSTRAP_CONFIRMATION=true"
+                    exit 1
+                fi
+            else
+                read -p "Are you sure you want to continue? [y/N]: " -n 1 -r
+                echo ""
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    log_info "Bootstrap cancelled by user"
+                    exit 0
+                fi
             fi
         fi
         export IS_BOOTSTRAP=true
