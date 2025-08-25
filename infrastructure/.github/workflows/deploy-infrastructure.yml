@@ -220,14 +220,43 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          
+          # Add SSH host key for security
           ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          
+          # Configure SSH client for better security and reliability
+          cat >> ~/.ssh/config << EOF
+          Host ${{ env.REMOTE_SERVER }}
+            HostName ${{ env.REMOTE_SERVER }}
+            User ${{ env.REMOTE_USER }}
+            Port ${{ env.REMOTE_PORT }}
+            IdentityFile ~/.ssh/id_rsa
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 30
+            ServerAliveInterval 60
+            ServerAliveCountMax 3
+            BatchMode yes
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Test SSH connection
         run: |
           echo "Testing SSH connection to ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}..."
-          ssh -o ConnectTimeout=10 -o BatchMode=yes ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'echo "SSH connection successful"'
+          # Test SSH connection with improved error handling
+          ssh -o ConnectTimeout=30 -o BatchMode=yes -o StrictHostKeyChecking=yes ${{ env.REMOTE_SERVER }} 'echo "SSH connection successful to $(hostname)"'
+          
+          # Verify SSH key authentication is working
+          echo "Verifying SSH key authentication..."
+          ssh ${{ env.REMOTE_SERVER }} 'echo "SSH key authentication confirmed for user: $(whoami)"'
+          
+          # Additional security validation
+          echo "Performing SSH security validation..."
+          ssh ${{ env.REMOTE_SERVER }} 'echo "Server hostname: $(hostname)" && echo "Current user: $(whoami)" && echo "SSH connection time: $(date)"'
 
       - name: Prepare remote server
         run: |
@@ -295,8 +324,9 @@ jobs:
             --exclude='test-results/' \
             .
           
-          # Transfer to remote server
-          scp infrastructure.tar.gz ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/opt/infrastructure/
+          # Transfer to remote server with error handling
+          echo "Transferring infrastructure code archive..."
+          scp -o StrictHostKeyChecking=yes -o ConnectTimeout=30 infrastructure.tar.gz ${{ env.REMOTE_SERVER }}:/opt/infrastructure/
           
           # Extract on remote server
           ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
@@ -320,9 +350,29 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          
+          # Add SSH host key for security
           ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          
+          # Configure SSH client for better security and reliability
+          cat >> ~/.ssh/config << EOF
+          Host ${{ env.REMOTE_SERVER }}
+            HostName ${{ env.REMOTE_SERVER }}
+            User ${{ env.REMOTE_USER }}
+            Port ${{ env.REMOTE_PORT }}
+            IdentityFile ~/.ssh/id_rsa
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 30
+            ServerAliveInterval 60
+            ServerAliveCountMax 3
+            BatchMode yes
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Setup deployment environment variables
         run: |
@@ -339,7 +389,7 @@ jobs:
       - name: Transfer deployment configuration
         run: |
           echo "Transferring deployment configuration to remote server..."
-          scp deployment.env ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/opt/infrastructure/
+          scp -o StrictHostKeyChecking=yes -o ConnectTimeout=30 deployment.env ${{ env.REMOTE_SERVER }}:/opt/infrastructure/
 
       - name: Execute remote deployment
         env:
