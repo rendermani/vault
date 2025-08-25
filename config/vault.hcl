@@ -12,7 +12,7 @@ storage "raft" {
 
 # Production TLS Listener
 listener "tcp" {
-  address       = "0.0.0.0:8200"
+  address       = "127.0.0.1:8200"
   tls_disable   = false
   tls_cert_file = "/etc/vault.d/tls/vault-cert.pem"
   tls_key_file  = "/etc/vault.d/tls/vault-key.pem"
@@ -30,8 +30,8 @@ listener "tcp" {
 
 # Cluster listener for HA
 listener "tcp" {
-  address         = "0.0.0.0:8201"
-  cluster_address = "0.0.0.0:8201"
+  address         = "127.0.0.1:8201"
+  cluster_address = "127.0.0.1:8201"
   tls_disable     = false
   tls_cert_file   = "/etc/vault.d/tls/vault-cert.pem"
   tls_key_file    = "/etc/vault.d/tls/vault-key.pem"
@@ -47,8 +47,8 @@ listener "unix" {
   socket_group = "vault"
 }
 
-api_addr = "http://vault.cloudya.net:8200"
-cluster_addr = "http://vault.cloudya.net:8201"
+api_addr = "https://vault.cloudya.net:8200"
+cluster_addr = "https://vault.cloudya.net:8201"
 
 # Enhanced telemetry with security metrics
 telemetry {
@@ -107,12 +107,15 @@ entropy "seal" {
 #   generate_key = "true"
 # }
 
-# Audit devices - will be enabled via API
-# audit "file" {
-#   file_path = "/var/log/vault/audit.log"
-# }
-# 
-# audit "syslog" {
-#   facility = "AUTH"
-#   tag = "vault"
-# }
+# Audit devices
+audit "file" {
+  file_path = "/var/log/vault/audit.log"
+  format = "json"
+  log_raw = false
+}
+
+audit "syslog" {
+  facility = "AUTH"
+  tag = "vault"
+  format = "json"
+}
