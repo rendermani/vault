@@ -1,3 +1,0 @@
-fresh_network_usage=126M
-noop_network_usage=0B
-network_savings=100%

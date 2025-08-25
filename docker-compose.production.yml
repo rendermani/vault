@@ -1,0 +1,218 @@
+version: '3.8'
+
+networks:
+  cloudya:
+    external: false
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+volumes:
+  vault_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/cloudya-data/vault
+      o: bind
+  consul_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/cloudya-data/consul
+      o: bind
+  nomad_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/cloudya-data/nomad
+      o: bind
+  traefik_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/cloudya-data/traefik
+      o: bind
+
+services:
+  consul:
+    image: hashicorp/consul:1.19.2
+    container_name: cloudya-consul
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.25.0.10
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    volumes:
+      - consul_data:/consul/data
+      - /opt/cloudya-infrastructure/config/consul.hcl:/consul/config/consul.hcl:ro
+    command: ["consul", "agent", "-config-file=/consul/config/consul.hcl"]
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+      - CONSUL_CLIENT_INTERFACE=eth0
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.consul.rule=Host(`consul.cloudya.net`)"
+      - "traefik.http.routers.consul.tls=true"
+      - "traefik.http.routers.consul.tls.certresolver=letsencrypt"
+      - "traefik.http.services.consul.loadbalancer.server.port=8500"
+      - "traefik.http.middlewares.consul-auth.basicauth.users=admin:$$2y$$10$$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"
+      - "traefik.http.routers.consul.middlewares=consul-auth"
+
+  vault:
+    image: hashicorp/vault:1.17.6
+    container_name: cloudya-vault
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.25.0.20
+    ports:
+      - "8200:8200"
+    volumes:
+      - vault_data:/vault/data
+      - /opt/cloudya-infrastructure/vault/config/vault.hcl:/vault/config/vault.hcl:ro
+      - /opt/cloudya-infrastructure/certs:/vault/certs:ro
+    cap_add:
+      - IPC_LOCK
+    command: ["vault", "server", "-config=/vault/config/vault.hcl"]
+    environment:
+      - VAULT_ADDR=https://0.0.0.0:8200
+      - VAULT_API_ADDR=https://vault.cloudya.net:8200
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vault.rule=Host(`vault.cloudya.net`)"
+      - "traefik.http.routers.vault.tls=true"
+      - "traefik.http.routers.vault.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vault.loadbalancer.server.port=8200"
+      - "traefik.http.services.vault.loadbalancer.server.scheme=https"
+      - "traefik.http.middlewares.vault-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.vault.middlewares=vault-headers"
+
+  nomad:
+    image: hashicorp/nomad:1.8.4
+    container_name: cloudya-nomad
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.25.0.30
+    ports:
+      - "4646:4646"
+      - "4647:4647"
+      - "4648:4648"
+    volumes:
+      - nomad_data:/nomad/data
+      - /opt/cloudya-infrastructure/nomad/config/nomad.hcl:/nomad/config/nomad.hcl:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["nomad", "agent", "-config=/nomad/config/nomad.hcl"]
+    depends_on:
+      consul:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nomad", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nomad.rule=Host(`nomad.cloudya.net`)"
+      - "traefik.http.routers.nomad.tls=true"
+      - "traefik.http.routers.nomad.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nomad.loadbalancer.server.port=4646"
+
+  traefik:
+    image: traefik:v3.2.3
+    container_name: cloudya-traefik
+    restart: unless-stopped
+    networks:
+      - cloudya
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /opt/cloudya-infrastructure/traefik/config/traefik.yml:/etc/traefik/traefik.yml:ro
+      - /opt/cloudya-infrastructure/traefik/config/dynamic:/etc/traefik/dynamic:ro
+      - traefik_data:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.cloudya.net`)"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$2y$$10$$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"
+      - "traefik.http.routers.dashboard.middlewares=dashboard-auth"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: cloudya-prometheus
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.25.0.40
+    ports:
+      - "9090:9090"
+    volumes:
+      - /opt/cloudya-data/monitoring/prometheus:/prometheus
+      - /opt/cloudya-infrastructure/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.external-url=https://prometheus.cloudya.net'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.cloudya.net`)"
+      - "traefik.http.routers.prometheus.tls=true"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+      - "traefik.http.middlewares.prometheus-auth.basicauth.users=admin:$$2y$$10$$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"
+      - "traefik.http.routers.prometheus.middlewares=prometheus-auth"
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: cloudya-grafana
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.25.0.50
+    ports:
+      - "3000:3000"
+    volumes:
+      - /opt/cloudya-data/monitoring/grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_ROOT_URL=https://grafana.cloudya.net
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.cloudya.net`)"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"

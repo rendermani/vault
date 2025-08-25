@@ -1,3 +1,0 @@
-fresh_operations=5
-noop_operations=3
-resource_savings=40.00%

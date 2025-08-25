@@ -1,0 +1,184 @@
+http:
+  routers:
+    # Traefik Dashboard
+    traefik-dashboard:
+      rule: "Host(`traefik.cloudya.net`)"
+      service: api@internal
+      middlewares:
+        - auth-traefik
+        - security-headers
+      tls:
+        certResolver: letsencrypt
+    
+    # Vault UI with enhanced configuration
+    vault:
+      rule: "Host(`vault.cloudya.net`)"
+      service: vault-service
+      middlewares:
+        - vault-headers
+        - cors-headers
+      tls:
+        certResolver: letsencrypt
+      priority: 100
+    
+    # Vault API specific routes (for better API handling)
+    vault-api:
+      rule: "Host(`vault.cloudya.net`) && PathPrefix(`/v1/`)"
+      service: vault-service
+      middlewares:
+        - vault-api-headers
+        - cors-headers
+      tls:
+        certResolver: letsencrypt
+      priority: 200
+    
+    # Consul UI  
+    consul:
+      rule: "Host(`consul.cloudya.net`)"
+      service: consul-service
+      middlewares:
+        - auth-consul
+        - security-headers
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    vault-service:
+      loadBalancer:
+        servers:
+          - url: "http://172.25.0.20:8200"
+        healthCheck:
+          path: "/v1/sys/health"
+          interval: "30s"
+          timeout: "10s"
+        passHostHeader: true
+        sticky:
+          cookie:
+            httpOnly: true
+            secure: true
+    
+    consul-service:
+      loadBalancer:
+        servers:
+          - url: "http://172.25.0.10:8500"
+        healthCheck:
+          path: "/v1/status/leader"
+          interval: "30s"
+          timeout: "10s"
+
+  middlewares:
+    # Enhanced authentication for Traefik dashboard
+    auth-traefik:
+      basicAuth:
+        users:
+          - "admin:$2y$10$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"  # admin:secure_password
+    
+    # Enhanced authentication for Consul
+    auth-consul:
+      basicAuth:
+        users:
+          - "admin:$2y$10$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"  # admin:secure_password
+    
+    # Enhanced security headers
+    security-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 63072000
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+          X-Forwarded-Host: ""
+          X-Real-IP: ""
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+    
+    # Vault-specific headers for UI
+    vault-headers:
+      headers:
+        frameDeny: false  # Vault UI may need iframe support
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 63072000
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+          X-Forwarded-Host: "vault.cloudya.net"
+          X-Forwarded-For: ""
+          X-Real-IP: ""
+          Host: "vault.cloudya.net"
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "1; mode=block"
+          Cache-Control: "no-cache, no-store, must-revalidate"
+          Pragma: "no-cache"
+          Expires: "0"
+    
+    # Vault API-specific headers
+    vault-api-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+          X-Forwarded-Host: "vault.cloudya.net"
+          X-Forwarded-For: ""
+          X-Real-IP: ""
+          Host: "vault.cloudya.net"
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          Cache-Control: "no-cache, no-store, must-revalidate"
+          Pragma: "no-cache"
+          Expires: "0"
+    
+    # CORS headers for API access
+    cors-headers:
+      headers:
+        accessControlAllowCredentials: true
+        accessControlAllowHeaders: "Content-Type, Authorization, X-Vault-Token, X-Vault-Namespace, X-Vault-Request, X-Requested-With"
+        accessControlAllowMethods: "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
+        accessControlAllowOriginList:
+          - "https://vault.cloudya.net"
+          - "https://traefik.cloudya.net"
+        accessControlMaxAge: 3600
+    
+    # Rate limiting for security
+    vault-rate-limit:
+      rateLimit:
+        burst: 100
+        period: "1m"
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+tls:
+  options:
+    default:
+      sslProtocols:
+        - "TLSv1.2"
+        - "TLSv1.3"
+      cipherSuites:
+        - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+        - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+      curvePreferences:
+        - "CurveP521"
+        - "CurveP384"
+      minVersion: "VersionTLS12"
+  
+  stores:
+    default:
+      defaultGeneratedCert:
+        resolver: letsencrypt
+        domain:
+          main: "cloudya.net"
+          sans:
+            - "*.cloudya.net"

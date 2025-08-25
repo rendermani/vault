@@ -1,0 +1,93 @@
+http:
+  middlewares:
+    # Enhanced security headers for general use
+    security-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 63072000
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+    
+    # Basic authentication
+    auth:
+      basicAuth:
+        users:
+          - "admin:$2y$10$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"
+    
+    # WebSocket upgrade support for applications that need it
+    websocket-headers:
+      headers:
+        customRequestHeaders:
+          Connection: "upgrade"
+          Upgrade: "websocket"
+          X-Forwarded-Proto: "https"
+          X-Forwarded-For: ""
+          X-Real-IP: ""
+    
+    # Compression middleware for better performance
+    compression:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+          - "application/octet-stream"
+          - "application/pdf"
+          - "application/zip"
+          - "application/gzip"
+    
+    # Retry middleware for better reliability
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+    
+    # Circuit breaker for fault tolerance
+    circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.30 || ResponseCodeRatio(500, 600, 0, 600) > 0.30"
+        checkPeriod: "60s"
+        fallbackDuration: "10s"
+        recoveryDuration: "30s"
+    
+    # Request/Response buffering
+    buffering:
+      buffering:
+        maxRequestBodyBytes: 10485760  # 10MB
+        memRequestBodyBytes: 2097152   # 2MB
+        maxResponseBodyBytes: 10485760 # 10MB
+        memResponseBodyBytes: 2097152  # 2MB
+        retryExpression: "IsNetworkError() && Attempts() <= 2"
+    
+    # Error pages middleware
+    error-pages:
+      errors:
+        status:
+          - "404"
+          - "500-599"
+        service: error-service
+        query: "/{status}.html"
+    
+    # IP whitelist for sensitive endpoints (if needed)
+    ip-whitelist:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+    
+    # Request timeout
+    timeout:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "30s"
+        idleConnTimeout: "90s"

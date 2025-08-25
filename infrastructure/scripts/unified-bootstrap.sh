@@ -671,16 +671,69 @@ EOF
     log_success "Vault deployment completed successfully"
 }
 
-# Deploy Traefik with Vault integration
+# Setup SSL certificates and directories
+setup_ssl_certificates() {
+    log_step "Setting up SSL certificate infrastructure..."
+    
+    if [[ "$DRY_RUN" != "true" ]]; then
+        # Run SSL certificate setup script
+        if [[ -x "$SCRIPT_DIR/setup-ssl-certificates.sh" ]]; then
+            log_info "Running SSL certificate setup..."
+            "$SCRIPT_DIR/setup-ssl-certificates.sh" setup
+            log_success "SSL certificate infrastructure setup completed"
+        else
+            log_warning "SSL setup script not found or not executable"
+            
+            # Manual SSL directory setup as fallback
+            log_info "Setting up SSL directories manually..."
+            sudo mkdir -p /opt/nomad/volumes/traefik-certs/{certs,private}
+            sudo mkdir -p /opt/nomad/volumes/traefik-config/dynamic
+            sudo mkdir -p /opt/nomad/volumes/traefik-logs
+            
+            # Set permissions
+            sudo chmod 700 /opt/nomad/volumes/traefik-certs
+            sudo chmod 755 /opt/nomad/volumes/traefik-certs/certs
+            sudo chmod 700 /opt/nomad/volumes/traefik-certs/private
+            sudo chmod 755 /opt/nomad/volumes/traefik-config
+            sudo chmod 755 /opt/nomad/volumes/traefik-logs
+            
+            # Initialize ACME storage
+            for acme_file in acme.json acme-staging.json; do
+                if [[ ! -f "/opt/nomad/volumes/traefik-certs/$acme_file" ]]; then
+                    echo '{}' | sudo tee "/opt/nomad/volumes/traefik-certs/$acme_file" > /dev/null
+                    sudo chmod 600 "/opt/nomad/volumes/traefik-certs/$acme_file"
+                    log_info "Created ACME storage: $acme_file"
+                fi
+            done
+            
+            log_success "Manual SSL directory setup completed"
+        fi
+    else
+        log_info "[DRY RUN] Would setup SSL certificate infrastructure"
+    fi
+}
+
+# Deploy Traefik with Vault integration and SSL
 deploy_traefik() {
     if [[ "$DEPLOY_TRAEFIK" != "true" ]]; then
         log_debug "Skipping Traefik deployment"
         return 0
     fi
     
-    log_header "DEPLOYING TRAEFIK WITH VAULT INTEGRATION"
+    log_header "DEPLOYING TRAEFIK WITH VAULT INTEGRATION AND SSL CERTIFICATES"
     
-    local job_file="$INFRA_DIR/traefik/traefik.nomad"
+    # Setup SSL certificates first
+    setup_ssl_certificates
+    
+    local job_file="$INFRA_DIR/nomad/jobs/traefik-production.nomad"
+    
+    # Use environment-specific job file if available
+    if [[ "$ENVIRONMENT" != "production" ]]; then
+        local env_job_file="$INFRA_DIR/nomad/jobs/${ENVIRONMENT}/traefik.nomad"
+        if [[ -f "$env_job_file" ]]; then
+            job_file="$env_job_file"
+        fi
+    fi
     
     if [[ ! -f "$job_file" ]]; then
         log_error "Traefik job file not found: $job_file"
@@ -841,12 +894,25 @@ validate_deployment() {
         if [[ "$DRY_RUN" != "true" ]]; then
             if curl -s http://localhost:8080/ping | grep -q OK; then
                 log_success "Traefik validation passed"
+                
+                # Validate SSL configuration
+                log_step "Validating SSL configuration..."
+                if [[ -x "$SCRIPT_DIR/validate-ssl-config.sh" ]]; then
+                    if "$SCRIPT_DIR/validate-ssl-config.sh" traefik; then
+                        log_success "SSL configuration validation passed"
+                    else
+                        log_warning "SSL configuration validation failed (non-critical)"
+                    fi
+                else
+                    log_warning "SSL validation script not found"
+                fi
+                
             else
                 log_error "Traefik validation failed"
                 validation_failed=true
             fi
         else
-            log_info "[DRY RUN] Would validate Traefik deployment"
+            log_info "[DRY RUN] Would validate Traefik deployment and SSL configuration"
         fi
     fi
     
