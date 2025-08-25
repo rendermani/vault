@@ -352,15 +352,37 @@ jobs:
             infrastructure/
           
           # Transfer to remote server
-          scp infrastructure.tar.gz ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/opt/infrastructure/
+          scp infrastructure.tar.gz ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/opt/
           
-          # Extract on remote server
+          # Extract on remote server with proper directory preservation
           ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
-            cd /opt/infrastructure
-            tar xzf infrastructure.tar.gz --strip-components=1
+            cd /opt
+            # Remove existing infrastructure directory if it exists
+            rm -rf /opt/infrastructure
+            # Extract archive (this creates /opt/infrastructure/ automatically)
+            tar xzf infrastructure.tar.gz
             rm infrastructure.tar.gz
-            chmod +x scripts/*.sh
-            echo "Infrastructure code transferred and extracted successfully"
+            chmod +x infrastructure/scripts/*.sh
+            
+            # Verify critical directories exist
+            echo "Verifying infrastructure directory structure..."
+            ls -la infrastructure/
+            ls -la infrastructure/nomad/
+            if [[ -d infrastructure/nomad/jobs ]]; then
+              echo "✓ Nomad jobs directory exists"
+              ls -la infrastructure/nomad/jobs/
+              if [[ -d infrastructure/nomad/jobs/production ]]; then
+                echo "✓ Production jobs directory exists"
+                ls -la infrastructure/nomad/jobs/production/
+              else
+                echo "⚠ Production jobs directory missing"
+              fi
+            else
+              echo "✗ Nomad jobs directory missing - this will cause deployment failure"
+              exit 1
+            fi
+            
+            echo "Infrastructure code transferred and verified successfully"
           EOF
 
   # Job 4: Perform rollback operation (if requested)
