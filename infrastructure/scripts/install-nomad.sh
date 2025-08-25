@@ -23,8 +23,11 @@ NOMAD_ADVERTISE_ADDR="${NOMAD_ADVERTISE_ADDR:-}"
 NOMAD_UI="${NOMAD_UI:-true}"
 CONSUL_ENABLED="${CONSUL_ENABLED:-true}"
 CONSUL_ADDRESS="${CONSUL_ADDRESS:-127.0.0.1:8500}"
+# CRITICAL: Vault integration is disabled by default during bootstrap to prevent circular dependency
+# Set NOMAD_VAULT_BOOTSTRAP_PHASE=true to ensure Vault stays disabled during initial deployment
 VAULT_ENABLED="${VAULT_ENABLED:-false}"
 VAULT_ADDRESS="${VAULT_ADDRESS:-https://127.0.0.1:8200}"
+NOMAD_VAULT_BOOTSTRAP_PHASE="${NOMAD_VAULT_BOOTSTRAP_PHASE:-false}"
 
 # Color codes for output
 RED='\033[0;31m'
@@ -373,8 +376,9 @@ consul {
 EOF
     fi
 
-    # Add Vault integration if enabled
-    if [[ "$VAULT_ENABLED" == "true" ]]; then
+    # Add Vault integration if enabled (but respect bootstrap phase)
+    # During bootstrap phase, Vault integration is always disabled to prevent circular dependency
+    if [[ "$VAULT_ENABLED" == "true" && "$NOMAD_VAULT_BOOTSTRAP_PHASE" != "true" ]]; then
         cat >> "$config_file" <<EOF
 vault {
   enabled = true
@@ -390,6 +394,18 @@ vault {
 }
 
 EOF
+    elif [[ "$NOMAD_VAULT_BOOTSTRAP_PHASE" == "true" ]]; then
+        cat >> "$config_file" <<EOF
+# Vault integration disabled during bootstrap phase
+# This prevents circular dependency: Nomad needs Vault, but Vault runs on Nomad
+# After Vault deployment, run reconfigure_nomad_with_vault() to enable Vault integration
+# vault {
+#   enabled = false
+#   # Will be enabled after Vault deployment
+# }
+
+EOF
+        log_info "Vault integration disabled during bootstrap phase to prevent circular dependency"
     fi
 
     # Add telemetry configuration
@@ -682,6 +698,12 @@ main() {
     if [[ "$NOMAD_NODE_ROLE" == "server" || "$NOMAD_NODE_ROLE" == "both" ]]; then
         log_warning "IMPORTANT: Save this encryption key for joining other nodes:"
         log_warning "NOMAD_ENCRYPT_KEY=$NOMAD_ENCRYPT_KEY"
+    fi
+    
+    if [[ "$NOMAD_VAULT_BOOTSTRAP_PHASE" == "true" ]]; then
+        log_warning "BOOTSTRAP PHASE DEPLOYMENT:"
+        log_warning "Vault integration is DISABLED to prevent circular dependency"
+        log_warning "After deploying Vault, run: reconfigure_nomad_with_vault() to enable Vault"
     fi
     
     log_info "Use 'nomad node status' to check cluster status"

@@ -122,6 +122,7 @@ generate_nomad_config() {
     local consul_address="${13:-127.0.0.1:8500}"
     local vault_enabled="${14:-false}"
     local vault_address="${15:-https://127.0.0.1:8200}"
+    local vault_bootstrap_phase="${16:-false}"  # New parameter for bootstrap phase control
     
     local log_level
     case "$environment" in
@@ -282,7 +283,7 @@ EOTLS
 EOCONSUL
 fi)
 
-$(if [[ "$vault_enabled" == "true" ]]; then
+$(if [[ "$vault_enabled" == "true" && "$vault_bootstrap_phase" != "true" ]]; then
 cat <<EOVAULT
 
 vault {
@@ -298,6 +299,17 @@ vault {
   tls_server_name = "vault.service.consul"
 }
 EOVAULT
+elif [[ "$vault_bootstrap_phase" == "true" ]]; then
+cat <<EOVAULTBOOTSTRAP
+
+# Vault integration disabled during bootstrap phase
+# This prevents circular dependency: Nomad needs Vault, but Vault runs on Nomad
+# After Vault deployment, run: reconfigure_nomad_with_vault() to enable Vault integration
+# vault {
+#   enabled = false
+#   # Will be enabled after Vault deployment
+# }
+EOVAULTBOOTSTRAP
 fi)
 
 # Telemetry configuration
@@ -1066,10 +1078,99 @@ job "traefik" {
 EOF
 }
 
+# Reconfigure Nomad with Vault integration enabled
+# Call this function after Vault is deployed and running
+reconfigure_nomad_with_vault() {
+    local environment="${1:-develop}"
+    local nomad_config_dir="${2:-/etc/nomad}"
+    local vault_token="${3:-}"
+    
+    log_info "Reconfiguring Nomad with Vault integration enabled..."
+    
+    # Validate Vault is accessible
+    if ! curl -s "$VAULT_ADDR/v1/sys/health" >/dev/null 2>&1; then
+        log_error "Vault is not accessible at $VAULT_ADDR"
+        return 1
+    fi
+    
+    # Backup current config
+    if [[ -f "$nomad_config_dir/nomad.hcl" ]]; then
+        cp "$nomad_config_dir/nomad.hcl" "$nomad_config_dir/nomad.hcl.pre-vault.$(date +%Y%m%d_%H%M%S)"
+        log_info "Backed up current Nomad configuration"
+    fi
+    
+    # Get current configuration parameters
+    local datacenter region bind_addr advertise_addr bootstrap_expect encrypt_key node_role
+    datacenter=$(grep "datacenter =" "$nomad_config_dir/nomad.hcl" | cut -d'"' -f2 2>/dev/null || echo "dc1")
+    region=$(grep "region =" "$nomad_config_dir/nomad.hcl" | cut -d'"' -f2 2>/dev/null || echo "global")
+    bind_addr=$(grep -A10 "advertise {" "$nomad_config_dir/nomad.hcl" | grep "http =" | cut -d'"' -f2 2>/dev/null || echo "0.0.0.0")
+    advertise_addr="$bind_addr"
+    bootstrap_expect=$(grep "bootstrap_expect =" "$nomad_config_dir/nomad.hcl" | cut -d' ' -f3 2>/dev/null || echo "1")
+    encrypt_key=$(grep "encrypt =" "$nomad_config_dir/nomad.hcl" | cut -d'"' -f2 2>/dev/null || echo "")
+    
+    # Determine node role
+    if grep -q "server {" "$nomad_config_dir/nomad.hcl" && grep -q "client {" "$nomad_config_dir/nomad.hcl"; then
+        node_role="both"
+    elif grep -q "server {" "$nomad_config_dir/nomad.hcl"; then
+        node_role="server"
+    elif grep -q "client {" "$nomad_config_dir/nomad.hcl"; then
+        node_role="client"
+    else
+        node_role="both"
+    fi
+    
+    # Generate new configuration with Vault enabled
+    generate_nomad_config "$environment" "$datacenter" "$region" "/opt/nomad/data" "/opt/nomad/plugins" \
+        "/var/log/nomad" "$node_role" "$encrypt_key" "$bind_addr" "$advertise_addr" \
+        "$bootstrap_expect" "true" "127.0.0.1:8500" "true" "$VAULT_ADDR" "false" > "$nomad_config_dir/nomad.hcl.new"
+    
+    # Validate new configuration
+    if nomad config validate "$nomad_config_dir/nomad.hcl.new"; then
+        mv "$nomad_config_dir/nomad.hcl.new" "$nomad_config_dir/nomad.hcl"
+        chown nomad:nomad "$nomad_config_dir/nomad.hcl"
+        chmod 640 "$nomad_config_dir/nomad.hcl"
+        
+        log_success "Nomad configuration updated with Vault integration"
+        
+        # Set Vault token if provided
+        if [[ -n "$vault_token" ]]; then
+            echo "VAULT_TOKEN=$vault_token" > "$nomad_config_dir/vault.env"
+            chown nomad:nomad "$nomad_config_dir/vault.env"
+            chmod 600 "$nomad_config_dir/vault.env"
+            log_info "Vault token configured for Nomad"
+        fi
+        
+        # Reload Nomad service
+        log_info "Reloading Nomad service..."
+        systemctl reload nomad
+        
+        # Wait for reload to complete
+        sleep 5
+        
+        # Verify Vault integration
+        if nomad status >/dev/null 2>&1; then
+            log_success "Nomad reloaded successfully with Vault integration"
+        else
+            log_error "Nomad failed to reload with new configuration"
+            log_warning "Restoring previous configuration..."
+            cp "$nomad_config_dir/nomad.hcl.pre-vault."* "$nomad_config_dir/nomad.hcl" 2>/dev/null || true
+            systemctl reload nomad
+            return 1
+        fi
+    else
+        log_error "New Nomad configuration validation failed"
+        rm -f "$nomad_config_dir/nomad.hcl.new"
+        return 1
+    fi
+    
+    log_success "Nomad successfully reconfigured with Vault integration"
+}
+
 # Export template generation functions
 export -f generate_consul_config generate_nomad_config generate_vault_config
 export -f generate_traefik_static_config generate_traefik_dynamic_config
 export -f generate_nomad_job_template generate_vault_job_template generate_traefik_job_template
+export -f reconfigure_nomad_with_vault
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     log_info "Configuration templates loaded"

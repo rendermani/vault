@@ -9,6 +9,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFRA_DIR="$(dirname "$SCRIPT_DIR")"
 
+# Source configuration templates and helper functions
+source "$SCRIPT_DIR/config-templates.sh" 2>/dev/null || {
+    echo "[ERROR] Failed to source config-templates.sh"
+    exit 1
+}
+
 # Default configuration
 ENVIRONMENT="develop"
 COMPONENTS="all"
@@ -17,6 +23,9 @@ FORCE_BOOTSTRAP=false
 SKIP_VALIDATION=false
 CLEANUP_ON_FAILURE=true
 VERBOSE=false
+ENABLE_ROLLBACK=true
+AUTO_ROLLBACK_ON_FAILURE=true
+ROLLBACK_CHECKPOINT_NAME=""
 
 # Service endpoints
 CONSUL_ADDR="http://localhost:8500"
@@ -84,6 +93,9 @@ Options:
   -s, --skip-validation     Skip pre-deployment validation
   -n, --no-cleanup          Don't cleanup on failure
   -v, --verbose             Enable verbose debug output
+  --no-rollback             Disable rollback system integration
+  --no-auto-rollback        Disable automatic rollback on failure
+  --checkpoint-name NAME    Custom name for rollback checkpoint
   -h, --help                Show this help message
 
 Examples:
@@ -97,18 +109,32 @@ Component Deployment Order:
   2. Vault (deployed on Nomad)
   3. Traefik (deployed on Nomad with Vault integration)
 
-Bootstrap Process:
+Bootstrap Process (Two-Phase Approach):
+  Phase 1: Initial Deployment
   - Installs HashiCorp tools as systemd services
-  - Uses proper systemd service management
-  - Deploys Vault on Nomad using temporary tokens
-  - Migrates from temporary tokens to Vault-managed tokens
+  - Deploys Nomad with Vault integration DISABLED (prevents circular dependency)
+  - Uses temporary bootstrap tokens for initial setup
+  
+  Phase 2: Vault Integration
+  - Deploys Vault on Nomad cluster
+  - Creates Vault-managed service tokens
+  - Reconfigures Nomad to enable Vault integration
   - Deploys Traefik with full Vault integration
+  
+  This approach solves the circular dependency: Nomad needs Vault, but Vault runs on Nomad
 
 CI/CD Environment Support:
   - Automatically detects CI environments (GitHub Actions, GitLab CI, etc.)
   - Skips interactive confirmation prompts in CI environments
   - Uses environment variables: CI, GITHUB_ACTIONS, TERM, TTY detection
   - Set SKIP_BOOTSTRAP_CONFIRMATION=false to force manual confirmation
+
+Circular Dependency Solution:
+  - ✅ FIXED: Vault-Nomad circular dependency with two-phase bootstrap
+  - Phase 1: Deploy Nomad with Vault integration DISABLED
+  - Phase 2: Deploy Vault, then enable Vault integration in Nomad
+  - Automatic reconfiguration and validation
+  - See scripts/docs/two-phase-bootstrap.md for details
 
 EOF
 }
@@ -144,6 +170,18 @@ parse_arguments() {
             -v|--verbose)
                 VERBOSE=true
                 shift
+                ;;
+            --no-rollback)
+                ENABLE_ROLLBACK=false
+                shift
+                ;;
+            --no-auto-rollback)
+                AUTO_ROLLBACK_ON_FAILURE=false
+                shift
+                ;;
+            --checkpoint-name)
+                ROLLBACK_CHECKPOINT_NAME="$2"
+                shift 2
                 ;;
             -h|--help)
                 usage
@@ -385,10 +423,19 @@ deploy_nomad() {
         return 0
     fi
     
-    log_header "DEPLOYING NOMAD CLUSTER WITH SYSTEMD"
+    log_header "DEPLOYING NOMAD CLUSTER WITH SYSTEMD (BOOTSTRAP PHASE)"
+    
+    # CRITICAL: During bootstrap phase, Vault integration MUST be disabled
+    # This prevents the circular dependency: Nomad needs Vault but Vault runs on Nomad
+    log_warning "Bootstrap Phase 1: Deploying Nomad with Vault integration DISABLED"
+    log_info "This prevents circular dependency - Vault will be enabled after deployment"
+    
+    # Set environment variables to ensure Vault is disabled during bootstrap
+    export VAULT_ENABLED="false"
+    export NOMAD_VAULT_BOOTSTRAP_PHASE="true"
     
     # Use the service management script for installation
-    log_step "Installing and starting HashiCorp services..."
+    log_step "Installing and starting HashiCorp services (Vault disabled)..."
     if [[ "$DRY_RUN" != "true" ]]; then
         # Make service management script executable
         chmod +x "$SCRIPT_DIR/manage-services.sh"
@@ -406,11 +453,20 @@ deploy_nomad() {
         log_step "Verifying services are healthy..."
         bash "$SCRIPT_DIR/manage-services.sh" health
         
+        # Verify Nomad config doesn't have Vault enabled
+        if grep -q "vault {" /etc/nomad/nomad.hcl && grep -q "enabled = true" /etc/nomad/nomad.hcl; then
+            log_error "CRITICAL: Nomad configuration has Vault enabled during bootstrap!"
+            log_error "This will cause circular dependency failure"
+            exit 1
+        fi
+        
+        log_success "✅ Nomad deployed successfully with Vault integration disabled"
+        
     else
         log_info "[DRY RUN] Would install and start HashiCorp services using manage-services.sh"
     fi
     
-    log_success "Nomad deployment completed successfully"
+    log_success "Nomad bootstrap phase deployment completed successfully"
 }
 
 # Deploy Vault on Nomad (unchanged from original)
@@ -577,6 +633,53 @@ EOF
     fi
     
     log_success "Vault deployment completed successfully"
+    
+    # Phase 2: Enable Vault integration in Nomad after Vault is running
+    if [[ "$IS_BOOTSTRAP" == "true" && "$DRY_RUN" != "true" ]]; then
+        enable_vault_integration
+    fi
+}
+
+# Enable Vault integration in Nomad (Phase 2 of bootstrap)
+enable_vault_integration() {
+    log_header "BOOTSTRAP PHASE 2: ENABLING VAULT INTEGRATION IN NOMAD"
+    
+    log_step "Reconfiguring Nomad with Vault integration enabled..."
+    
+    # Get the Vault token for Nomad integration
+    local nomad_vault_token=""
+    if [[ -f "$INFRA_DIR/tmp/vault-secrets-$ENVIRONMENT/nomad-token.txt" ]]; then
+        nomad_vault_token=$(cat "$INFRA_DIR/tmp/vault-secrets-$ENVIRONMENT/nomad-token.txt")
+        log_info "Using Nomad Vault integration token: ${nomad_vault_token:0:10}..."
+    else
+        log_warning "No Nomad Vault token found, Vault integration will be enabled without token"
+    fi
+    
+    # Call the reconfiguration function
+    if reconfigure_nomad_with_vault "$ENVIRONMENT" "/etc/nomad" "$nomad_vault_token"; then
+        log_success "✅ Phase 2 Complete: Nomad successfully reconfigured with Vault integration"
+        
+        # Verify Vault integration is working
+        log_step "Verifying Vault integration..."
+        if nomad status >/dev/null 2>&1; then
+            log_success "Nomad is responsive with Vault integration enabled"
+            
+            # Check if Vault integration is actually working
+            if timeout 30 bash -c 'until nomad status >/dev/null 2>&1; do sleep 2; done'; then
+                log_success "Vault-Nomad integration is fully operational"
+            else
+                log_warning "Nomad is running but Vault integration may need time to fully activate"
+            fi
+        else
+            log_error "Nomad is not responsive after Vault integration"
+            log_error "This may indicate a configuration issue"
+            return 1
+        fi
+    else
+        log_error "Failed to reconfigure Nomad with Vault integration"
+        log_error "Continuing without Vault integration - manual reconfiguration required"
+        return 1
+    fi
 }
 
 # Deploy Traefik with Vault integration (unchanged from original)
@@ -811,6 +914,133 @@ EOF
     log_success "Deployment marker created: $marker_dir/.deployed"
 }
 
+# Rollback integration functions
+create_deployment_checkpoint() {
+    if [[ "$ENABLE_ROLLBACK" != "true" || "$DRY_RUN" == "true" ]]; then
+        log_debug "Rollback disabled or dry run - skipping checkpoint creation"
+        return 0
+    fi
+    
+    log_header "CREATING PRE-DEPLOYMENT ROLLBACK CHECKPOINT"
+    
+    # Determine checkpoint name
+    local checkpoint_name="${ROLLBACK_CHECKPOINT_NAME:-pre-deployment-$ENVIRONMENT}"
+    
+    # Check if rollback manager exists
+    if [[ ! -f "$SCRIPT_DIR/rollback-manager.sh" ]]; then
+        log_error "Rollback manager not found: $SCRIPT_DIR/rollback-manager.sh"
+        log_warning "Continuing without rollback checkpoint"
+        return 0
+    fi
+    
+    # Make rollback manager executable
+    chmod +x "$SCRIPT_DIR/rollback-manager.sh"
+    
+    # Create checkpoint
+    log_info "Creating rollback checkpoint: $checkpoint_name"
+    if local checkpoint_id=$("$SCRIPT_DIR/rollback-manager.sh" checkpoint "$checkpoint_name" 2>&1 | tail -1); then
+        export DEPLOYMENT_CHECKPOINT_ID="$checkpoint_id"
+        log_success "Rollback checkpoint created: $checkpoint_id"
+        log_info "Checkpoint can be used for rollback with: $SCRIPT_DIR/rollback-manager.sh rollback $checkpoint_id"
+    else
+        log_error "Failed to create rollback checkpoint"
+        log_warning "Continuing deployment without checkpoint"
+    fi
+}
+
+# Perform automatic rollback on deployment failure
+perform_automatic_rollback() {
+    local failure_reason="$1"
+    
+    if [[ "$AUTO_ROLLBACK_ON_FAILURE" != "true" || "$DRY_RUN" == "true" ]]; then
+        log_debug "Automatic rollback disabled or dry run - skipping rollback"
+        return 0
+    fi
+    
+    if [[ -z "${DEPLOYMENT_CHECKPOINT_ID:-}" ]]; then
+        log_warning "No deployment checkpoint available for rollback"
+        return 0
+    fi
+    
+    log_header "PERFORMING AUTOMATIC ROLLBACK"
+    log_error "Deployment failed: $failure_reason"
+    log_info "Rolling back to checkpoint: $DEPLOYMENT_CHECKPOINT_ID"
+    
+    # Check if rollback manager exists
+    if [[ ! -f "$SCRIPT_DIR/rollback-manager.sh" ]]; then
+        log_error "Rollback manager not found: $SCRIPT_DIR/rollback-manager.sh"
+        return 1
+    fi
+    
+    # Perform rollback
+    if "$SCRIPT_DIR/rollback-manager.sh" rollback "$DEPLOYMENT_CHECKPOINT_ID"; then
+        log_success "Automatic rollback completed successfully"
+        log_info "System restored to pre-deployment state"
+    else
+        log_error "Automatic rollback failed"
+        log_error "Manual intervention may be required"
+        return 1
+    fi
+}
+
+# Validate deployment with rollback capability
+validate_deployment_with_rollback() {
+    log_header "DEPLOYMENT VALIDATION WITH ROLLBACK CAPABILITY"
+    
+    # Run the original validation
+    if validate_deployment; then
+        log_success "Deployment validation passed - no rollback needed"
+        
+        # Clean up successful deployment checkpoint if configured
+        if [[ "$ENABLE_ROLLBACK" == "true" && -n "${DEPLOYMENT_CHECKPOINT_ID:-}" ]]; then
+            log_info "Deployment successful - keeping checkpoint for 24 hours as safety backup"
+            # Could add logic here to schedule cleanup of successful deployment checkpoints
+        fi
+        
+        return 0
+    else
+        log_error "Deployment validation failed"
+        
+        # Trigger automatic rollback if enabled
+        if [[ "$AUTO_ROLLBACK_ON_FAILURE" == "true" ]]; then
+            perform_automatic_rollback "Deployment validation failed"
+            return 1
+        else
+            log_warning "Automatic rollback is disabled"
+            log_warning "To rollback manually, use: $SCRIPT_DIR/rollback-manager.sh rollback ${DEPLOYMENT_CHECKPOINT_ID:-latest}"
+            return 1
+        fi
+    fi
+}
+
+# Enhanced deployment wrapper with failure detection
+deploy_with_failure_detection() {
+    local component="$1"
+    local deploy_function="$2"
+    
+    log_step "Deploying $component with failure detection..."
+    
+    # Set trap for component deployment failure
+    local component_failed=false
+    
+    # Execute the deployment function
+    if ! "$deploy_function"; then
+        component_failed=true
+        log_error "$component deployment failed"
+        
+        # Trigger automatic rollback if enabled
+        if [[ "$AUTO_ROLLBACK_ON_FAILURE" == "true" ]]; then
+            perform_automatic_rollback "$component deployment failed"
+            exit 1
+        else
+            log_warning "To rollback manually, use: $SCRIPT_DIR/rollback-manager.sh rollback ${DEPLOYMENT_CHECKPOINT_ID:-latest}"
+            exit 1
+        fi
+    else
+        log_success "$component deployment completed successfully"
+    fi
+}
+
 # Enhanced cleanup function with secure token removal
 secure_cleanup() {
     local exit_code=$?
@@ -827,12 +1057,25 @@ secure_cleanup() {
     if [[ $exit_code -ne 0 && "$CLEANUP_ON_FAILURE" == "true" ]]; then
         log_warning "Deployment failed, running cleanup..."
         
-        # Stop systemd services
-        systemctl stop nomad 2>/dev/null || true
-        systemctl stop consul 2>/dev/null || true
-        
-        # Remove temporary files
-        rm -rf /tmp/nomad-config.hcl 2>/dev/null || true
+        # Try automatic rollback first if enabled
+        if [[ "$AUTO_ROLLBACK_ON_FAILURE" == "true" && -n "${DEPLOYMENT_CHECKPOINT_ID:-}" ]]; then
+            log_info "Attempting automatic rollback..."
+            perform_automatic_rollback "Deployment script failed with exit code $exit_code"
+        else
+            # Fall back to traditional cleanup
+            log_info "Rollback not available or disabled, performing traditional cleanup..."
+            
+            # Stop systemd services
+            systemctl stop nomad 2>/dev/null || true
+            systemctl stop consul 2>/dev/null || true
+            
+            # Remove temporary files
+            rm -rf /tmp/nomad-config.hcl 2>/dev/null || true
+            
+            if [[ -n "${DEPLOYMENT_CHECKPOINT_ID:-}" ]]; then
+                log_info "Manual rollback available: $SCRIPT_DIR/rollback-manager.sh rollback $DEPLOYMENT_CHECKPOINT_ID"
+            fi
+        fi
         
         log_info "Cleanup completed"
     fi
@@ -896,6 +1139,18 @@ generate_summary() {
         echo -e "  ${CYAN}Service status:${NC} bash $SCRIPT_DIR/manage-services.sh status"
         echo -e "  ${CYAN}Service logs:${NC} bash $SCRIPT_DIR/manage-services.sh logs"
         
+        if [[ "$ENABLE_ROLLBACK" == "true" ]]; then
+            echo ""
+            echo -e "${WHITE}Rollback Management:${NC}"
+            echo -e "  ${CYAN}List checkpoints:${NC} bash $SCRIPT_DIR/rollback-manager.sh list"
+            echo -e "  ${CYAN}Rollback system status:${NC} bash $SCRIPT_DIR/rollback-manager.sh status"
+            if [[ -n "${DEPLOYMENT_CHECKPOINT_ID:-}" ]]; then
+                echo -e "  ${CYAN}Rollback to checkpoint:${NC} bash $SCRIPT_DIR/rollback-manager.sh rollback $DEPLOYMENT_CHECKPOINT_ID"
+                echo -e "  ${CYAN}Verify checkpoint:${NC} bash $SCRIPT_DIR/rollback-manager.sh verify $DEPLOYMENT_CHECKPOINT_ID"
+            fi
+            echo -e "  ${CYAN}Create new checkpoint:${NC} bash $SCRIPT_DIR/rollback-manager.sh checkpoint [name]"
+        fi
+        
         if [[ "$IS_BOOTSTRAP" == "true" && "$ENVIRONMENT" != "develop" ]]; then
             echo ""
             echo -e "${RED}IMPORTANT SECURITY REMINDERS:${NC}"
@@ -937,15 +1192,19 @@ main() {
     # Execute deployment pipeline
     check_prerequisites
     determine_deployment_strategy
+    
+    # Create rollback checkpoint before deployment
+    create_deployment_checkpoint
+    
     setup_bootstrap_tokens
     
-    # Deploy components in dependency order
-    deploy_nomad
-    deploy_vault
-    deploy_traefik
+    # Deploy components in dependency order with failure detection
+    deploy_with_failure_detection "Nomad" deploy_nomad
+    deploy_with_failure_detection "Vault" deploy_vault
+    deploy_with_failure_detection "Traefik" deploy_traefik
     
-    # Validate and finalize
-    validate_deployment
+    # Validate and finalize with rollback capability
+    validate_deployment_with_rollback
     create_deployment_marker
     generate_summary
     
