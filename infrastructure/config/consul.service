@@ -1,0 +1,32 @@
+[Unit]
+Description=Consul
+Documentation=https://consul.io/
+Requires=network-online.target
+After=network-online.target
+ConditionFileNotEmpty=/opt/consul/config/consul.hcl
+
+[Service]
+Type=exec
+User=consul
+Group=consul
+ExecStart=/usr/local/bin/consul agent -config-dir=/opt/consul/config/
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+LimitNOFILE=65536
+LimitNPROC=32768
+LimitCORE=infinity
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/consul
+ReadOnlyPaths=/usr/local/bin/consul
+
+# Environment
+Environment=CONSUL_ALLOW_PRIVILEGED_PORTS=1
+
+[Install]
+WantedBy=multi-user.target

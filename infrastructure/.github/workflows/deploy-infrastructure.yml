@@ -365,13 +365,14 @@ jobs:
             export NOMAD_BOOTSTRAP_TOKEN="${{ env.NOMAD_BOOTSTRAP_TOKEN }}"
             export CONSUL_BOOTSTRAP_TOKEN="${{ env.CONSUL_BOOTSTRAP_TOKEN }}"
             
-            # Make deployment script executable
-            chmod +x scripts/unified-bootstrap.sh
+            # Make deployment scripts executable
+            chmod +x scripts/unified-bootstrap-systemd.sh
+            chmod +x scripts/manage-services.sh
             
-            # Execute deployment based on configuration
+            # Execute deployment based on configuration using the systemd version
             if [[ "$DRY_RUN" == "true" ]]; then
               echo "Performing dry run deployment..."
-              ./scripts/unified-bootstrap.sh \
+              ./scripts/unified-bootstrap-systemd.sh \
                 --environment "$ENVIRONMENT" \
                 --components "$COMPONENTS" \
                 --dry-run \
@@ -384,7 +385,7 @@ jobs:
                 deployment_args+=("--force-bootstrap")
               fi
               
-              ./scripts/unified-bootstrap.sh "${deployment_args[@]}"
+              ./scripts/unified-bootstrap-systemd.sh "${deployment_args[@]}"
             fi
             
             echo "Remote deployment completed successfully"
@@ -403,27 +404,42 @@ jobs:
             source deployment.env
             
             if [[ "$DRY_RUN" != "true" ]]; then
-              # Validate Nomad if deployed
+              # Use the service management script for comprehensive validation
+              echo "Running comprehensive health check..."
+              ./scripts/manage-services.sh health
+              
+              # Show service status
+              echo ""
+              echo "=== Service Status ==="
+              ./scripts/manage-services.sh status
+              
+              # Additional specific checks
               if [[ "$DEPLOY_NOMAD" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
-                if pgrep -f "nomad agent" > /dev/null; then
-                  echo "✓ Nomad is running"
-                  nomad node status || echo "Nomad node status check failed"
+                echo ""
+                echo "=== Nomad Cluster Status ==="
+                if systemctl is-active --quiet nomad; then
+                  echo "✓ Nomad systemd service is active"
+                  nomad node status 2>/dev/null || echo "⚠ Nomad node status check failed"
+                  nomad server members 2>/dev/null || echo "⚠ Nomad server members check failed"
                 else
-                  echo "⚠ Nomad process not found"
+                  echo "⚠ Nomad systemd service is not active"
                 fi
               fi
               
-              # Validate Vault if deployed
               if [[ "$DEPLOY_VAULT" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
+                echo ""
+                echo "=== Vault Status ==="
                 if curl -s http://localhost:8200/v1/sys/health > /dev/null 2>&1; then
                   echo "✓ Vault is responding"
+                  vault status 2>/dev/null || echo "⚠ Vault status check failed (may need auth)"
                 else
                   echo "⚠ Vault health check failed"
                 fi
               fi
               
-              # Validate Traefik if deployed
               if [[ "$DEPLOY_TRAEFIK" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
+                echo ""
+                echo "=== Traefik Status ==="
                 if curl -s http://localhost:8080/ping > /dev/null 2>&1; then
                   echo "✓ Traefik is responding"
                 else
@@ -457,8 +473,12 @@ jobs:
             echo "Docker status:"
             systemctl is-active docker || echo "Docker not active"
             
-            echo "\nRunning processes:"
-            ps aux | grep -E "(nomad|vault|consul|traefik)" | grep -v grep || echo "No relevant processes found"
+            echo "\n=== Systemd Service Status ==="
+            systemctl is-active consul && echo "Consul: Active" || echo "Consul: Inactive"
+            systemctl is-active nomad && echo "Nomad: Active" || echo "Nomad: Inactive"
+            
+            echo "\n=== Service Logs ==="
+            ./scripts/manage-services.sh logs 2>/dev/null || echo "Could not retrieve service logs"
             
             echo "\nPort status:"
             netstat -tlnp | grep -E ":(4646|8200|8500|8080)" || echo "No relevant ports listening"
@@ -501,6 +521,7 @@ jobs:
           echo "- Traefik: ${{ needs.prepare-deployment.outputs.deploy-traefik }}" >> $GITHUB_STEP_SUMMARY
           echo "### Bootstrap: ${{ needs.prepare-deployment.outputs.is-bootstrap }}" >> $GITHUB_STEP_SUMMARY
           echo "### Dry Run: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Service Management: Systemd (Native Services)" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ github.event.inputs.dry_run || 'false' }}" != "true" ]]; then
             echo "### Access URLs (via SSH tunnel):" >> $GITHUB_STEP_SUMMARY
@@ -511,5 +532,20 @@ jobs:
             echo "- Nomad UI: http://localhost:4646 (via tunnel)" >> $GITHUB_STEP_SUMMARY
             echo "- Vault UI: http://localhost:8200 (via tunnel)" >> $GITHUB_STEP_SUMMARY
             echo "- Traefik Dashboard: http://localhost:8080 (via tunnel)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Service Management Commands:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+            echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/manage-services.sh status'" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Restart services" >> $GITHUB_STEP_SUMMARY
+            echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/manage-services.sh restart'" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# View service logs" >> $GITHUB_STEP_SUMMARY
+            echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/manage-services.sh logs'" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Health check" >> $GITHUB_STEP_SUMMARY
+            echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/manage-services.sh health'" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
 

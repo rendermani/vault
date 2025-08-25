@@ -1,0 +1,33 @@
+[Unit]
+Description=Nomad
+Documentation=https://nomadproject.io/docs/
+Requires=network-online.target
+After=network-online.target consul.service
+Wants=consul.service
+ConditionFileNotEmpty=/opt/nomad/config/nomad.hcl
+
+[Service]
+Type=exec
+User=nomad
+Group=nomad
+ExecStart=/usr/local/bin/nomad agent -config=/opt/nomad/config/nomad.hcl
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+LimitNOFILE=65536
+LimitNPROC=32768
+LimitCORE=infinity
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/nomad
+ReadOnlyPaths=/usr/local/bin/nomad
+
+# Environment variables
+Environment=NOMAD_ADDR=http://localhost:4646
+
+[Install]
+WantedBy=multi-user.target
