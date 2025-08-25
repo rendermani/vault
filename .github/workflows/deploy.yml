@@ -346,6 +346,13 @@ jobs:
           
           # Workaround for broken submodule: Copy nomad job files from working location
           echo "Working around broken git submodule for nomad jobs..."
+          
+          # Debug: Show what directories exist
+          echo "DEBUG: Current directory structure:"
+          find infrastructure -type d -name "*nomad*" -o -name "*vault*" -o -name "*jobs*" | head -10
+          echo "DEBUG: Looking for any vault.nomad files:"
+          find infrastructure -name "vault.nomad" -type f | head -10
+          
           if [[ ! -d infrastructure/nomad/jobs ]] || [[ ! -f infrastructure/nomad/jobs/production/vault.nomad ]]; then
             echo "Nomad jobs directory missing, attempting to restore from backup locations..."
             mkdir -p infrastructure/nomad/jobs/production
