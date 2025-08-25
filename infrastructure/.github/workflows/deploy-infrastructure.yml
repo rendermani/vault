@@ -322,6 +322,9 @@ jobs:
             --exclude='*.log' \
             --exclude='tmp/' \
             --exclude='test-results/' \
+            --exclude='validation-results/' \
+            --exclude='repositories/' \
+            --exclude='vault/' \
             .
           
           # Transfer to remote server with error handling
@@ -331,9 +334,20 @@ jobs:
           # Extract on remote server
           ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
             cd /opt/infrastructure
+            # Clean existing files but preserve any runtime data
+            find . -maxdepth 1 -name "*.tar.gz" -delete
+            find . -maxdepth 1 -type f -name "*.env" -delete
+            
+            # Extract new infrastructure code
             tar xzf infrastructure.tar.gz
             rm infrastructure.tar.gz
             chmod +x scripts/*.sh
+            
+            # Verify critical files exist
+            echo "Verifying infrastructure files..."
+            ls -la nomad/jobs/production/ 2>/dev/null || echo "Warning: nomad/jobs/production directory not found"
+            ls -la scripts/unified-bootstrap-systemd.sh || echo "Warning: bootstrap script not found"
+            
             echo "Infrastructure code transferred and extracted successfully"
           EOF
 

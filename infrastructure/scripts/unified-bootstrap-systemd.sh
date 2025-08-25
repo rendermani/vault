@@ -482,11 +482,32 @@ deploy_vault() {
     
     log_header "DEPLOYING VAULT ON NOMAD"
     
+    # Debug information
+    log_info "Current directory: $(pwd)"
+    log_info "SCRIPT_DIR: $SCRIPT_DIR"
+    log_info "INFRA_DIR: $INFRA_DIR"
+    log_info "ENVIRONMENT: $ENVIRONMENT"
+    
+    # Check for job files in multiple locations
     local job_file="$INFRA_DIR/nomad/jobs/$ENVIRONMENT/vault.nomad"
+    local alt_job_file="$INFRA_DIR/nomad/jobs/vault-$ENVIRONMENT.nomad"
     
     if [[ ! -f "$job_file" ]]; then
-        log_error "Vault job file not found: $job_file"
-        exit 1
+        log_warning "Primary job file not found: $job_file"
+        
+        # Try alternative location
+        if [[ -f "$alt_job_file" ]]; then
+            log_info "Using alternative job file: $alt_job_file"
+            job_file="$alt_job_file"
+        else
+            log_error "Vault job file not found in any expected location"
+            log_error "Checked locations:"
+            log_error "  - $job_file"
+            log_error "  - $alt_job_file"
+            log_error "Directory contents of $INFRA_DIR/nomad/jobs/:"
+            ls -la "$INFRA_DIR/nomad/jobs/" 2>/dev/null || log_error "Directory does not exist"
+            exit 1
+        fi
     fi
     
     log_step "Validating Vault job configuration..."
