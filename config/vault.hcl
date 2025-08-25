@@ -47,8 +47,8 @@ listener "unix" {
   socket_group = "vault"
 }
 
-api_addr = "https://vault.cloudya.net:8200"
-cluster_addr = "https://vault.cloudya.net:8201"
+api_addr = "http://vault.cloudya.net:8200"
+cluster_addr = "http://vault.cloudya.net:8201"
 
 # Enhanced telemetry with security metrics
 telemetry {

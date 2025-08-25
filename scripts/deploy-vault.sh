@@ -21,8 +21,9 @@ BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
 # Set VAULT_ADDR based on environment - used throughout script
 set_vault_addr() {
     if [ "$ENVIRONMENT" = "production" ]; then
-        export VAULT_ADDR=https://vault.cloudya.net:8200
-        export VAULT_CLUSTER_ADDR=https://vault.cloudya.net:8201
+        # Use HTTP for now - TLS will be configured after initial deployment
+        export VAULT_ADDR=http://vault.cloudya.net:8200
+        export VAULT_CLUSTER_ADDR=http://vault.cloudya.net:8201
     else
         export VAULT_ADDR=http://localhost:8200
         export VAULT_CLUSTER_ADDR=http://localhost:8201

@@ -261,7 +261,7 @@ jobs:
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
             # Set VAULT_ADDR based on environment
             if [ '${{ needs.pre-deployment-checks.outputs.environment }}' = 'production' ]; then
-              export VAULT_ADDR=https://vault.cloudya.net:8200
+              export VAULT_ADDR=http://vault.cloudya.net:8200
             else
               export VAULT_ADDR=http://localhost:8200
             fi
@@ -300,7 +300,7 @@ jobs:
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
             # Set VAULT_ADDR based on environment
             if [ '${{ needs.pre-deployment-checks.outputs.environment }}' = 'production' ]; then
-              export VAULT_ADDR=https://vault.cloudya.net:8200
+              export VAULT_ADDR=http://vault.cloudya.net:8200
             else
               export VAULT_ADDR=http://localhost:8200
             fi
@@ -344,7 +344,7 @@ jobs:
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
             # Set VAULT_ADDR based on environment
             if [ '${{ needs.pre-deployment-checks.outputs.environment }}' = 'production' ]; then
-              export VAULT_ADDR=https://vault.cloudya.net:8200
+              export VAULT_ADDR=http://vault.cloudya.net:8200
             else
               export VAULT_ADDR=http://localhost:8200
             fi
@@ -454,7 +454,7 @@ jobs:
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
             # Set VAULT_ADDR based on environment
             if [ "'${{ needs.pre-deployment-checks.outputs.environment }}'" = "production" ]; then
-              export VAULT_ADDR=https://vault.cloudya.net:8200
+              export VAULT_ADDR=http://vault.cloudya.net:8200
             else
               export VAULT_ADDR=http://localhost:8200
             fi
