@@ -353,12 +353,26 @@ jobs:
             mkdir -p infrastructure/nomad/jobs/staging
             
             # Check if job files exist in alternative locations and copy them
+            echo "Searching for nomad job files in backup locations..."
+            
+            # Copy from repositories/nomad if it exists (most likely location)
+            if [[ -d infrastructure/repositories/nomad/jobs ]]; then
+              echo "Found nomad jobs in: infrastructure/repositories/nomad/jobs"
+              cp -r infrastructure/repositories/nomad/jobs/* infrastructure/nomad/jobs/ 2>/dev/null || true
+            fi
+            
+            # Additional search patterns
             for repo_path in infrastructure/repositories/*/nomad/jobs infrastructure/*/nomad/jobs; do
               if [[ -d "$repo_path" ]]; then
-                echo "Found nomad jobs in: $repo_path"
+                echo "Found additional nomad jobs in: $repo_path"
                 cp -r "$repo_path"/* infrastructure/nomad/jobs/ 2>/dev/null || true
               fi
             done
+            
+            # Final fallback: look for any vault.nomad files and copy them
+            find infrastructure -name "vault.nomad" -path "*/production/*" -exec cp {} infrastructure/nomad/jobs/production/ \; 2>/dev/null || true
+            find infrastructure -name "vault.nomad" -path "*/develop/*" -exec cp {} infrastructure/nomad/jobs/develop/ \; 2>/dev/null || true
+            find infrastructure -name "vault.nomad" -path "*/staging/*" -exec cp {} infrastructure/nomad/jobs/staging/ \; 2>/dev/null || true
             
             # Verify copy worked
             if [[ -f infrastructure/nomad/jobs/production/vault.nomad ]]; then
