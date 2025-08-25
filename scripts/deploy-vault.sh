@@ -92,7 +92,7 @@ health_check() {
     
     # Set VAULT_ADDR based on environment
     if [ "$ENVIRONMENT" = "production" ]; then
-        export VAULT_ADDR=https://vault.cloudya.net:8200
+        export VAULT_ADDR=http://vault.cloudya.net:8200
     else
         export VAULT_ADDR=http://localhost:8200
     fi
@@ -160,7 +160,7 @@ EOF
     if systemctl is-active vault >/dev/null 2>&1; then
         # Set VAULT_ADDR based on environment
         if [ "$ENVIRONMENT" = "production" ]; then
-            export VAULT_ADDR=https://vault.cloudya.net:8200
+            export VAULT_ADDR=http://vault.cloudya.net:8200
         else
             export VAULT_ADDR=http://localhost:8200
         fi
@@ -394,7 +394,7 @@ EOF
     # Initialize if needed
     # Set VAULT_ADDR based on environment
     if [ "$ENVIRONMENT" = "production" ]; then
-        export VAULT_ADDR=https://vault.cloudya.net:8200
+        export VAULT_ADDR=http://vault.cloudya.net:8200
     else
         export VAULT_ADDR=http://localhost:8200
     fi
@@ -438,7 +438,7 @@ configure_vault() {
     
     # Set VAULT_ADDR based on environment
     if [ "$ENVIRONMENT" = "production" ]; then
-        export VAULT_ADDR=https://vault.cloudya.net:8200
+        export VAULT_ADDR=http://vault.cloudya.net:8200
     else
         export VAULT_ADDR=http://localhost:8200
     fi
