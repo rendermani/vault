@@ -88,8 +88,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -144,8 +142,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Determine deployment environment
         id: determine-env
@@ -259,8 +255,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Setup SSH key
         run: |
@@ -349,6 +343,34 @@ jobs:
       - name: Transfer infrastructure code
         run: |
           echo "Transferring infrastructure code to remote server..."
+          
+          # Workaround for broken submodule: Copy nomad job files from working location
+          echo "Working around broken git submodule for nomad jobs..."
+          if [[ ! -d infrastructure/nomad/jobs ]] || [[ ! -f infrastructure/nomad/jobs/production/vault.nomad ]]; then
+            echo "Nomad jobs directory missing, attempting to restore from backup locations..."
+            mkdir -p infrastructure/nomad/jobs/production
+            mkdir -p infrastructure/nomad/jobs/develop
+            mkdir -p infrastructure/nomad/jobs/staging
+            
+            # Check if job files exist in alternative locations and copy them
+            for repo_path in infrastructure/repositories/*/nomad/jobs infrastructure/*/nomad/jobs; do
+              if [[ -d "$repo_path" ]]; then
+                echo "Found nomad jobs in: $repo_path"
+                cp -r "$repo_path"/* infrastructure/nomad/jobs/ 2>/dev/null || true
+              fi
+            done
+            
+            # Verify copy worked
+            if [[ -f infrastructure/nomad/jobs/production/vault.nomad ]]; then
+              echo "✓ Successfully restored vault.nomad"
+            else
+              echo "✗ Failed to restore vault.nomad - deployment will fail"
+              exit 1
+            fi
+          else
+            echo "✓ Nomad jobs directory already exists"
+          fi
+          
           # Create a temporary archive of the infrastructure code
           tar czf infrastructure.tar.gz \
             --exclude='.git' \
@@ -400,8 +422,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Setup SSH key
         run: |
@@ -525,8 +545,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Setup SSH key
         run: |
