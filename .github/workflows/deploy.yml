@@ -259,7 +259,14 @@ jobs:
         run: |
           echo "🔐 Initializing Vault..."
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
-            export VAULT_ADDR=http://localhost:8200
+            # Set VAULT_ADDR based on environment
+            if [ '${{ needs.pre-deployment-checks.outputs.environment }}' = 'production' ]; then
+              export VAULT_ADDR=https://vault.cloudya.net:8200
+            else
+              export VAULT_ADDR=http://localhost:8200
+            fi
+            
+            echo \"Using VAULT_ADDR: \$VAULT_ADDR\"
             
             # Check if already initialized
             if vault status 2>&1 | grep -q 'Initialized.*true'; then
@@ -291,7 +298,14 @@ jobs:
         run: |
           echo "🔓 Unsealing Vault..."
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
-            export VAULT_ADDR=http://localhost:8200
+            # Set VAULT_ADDR based on environment
+            if [ '${{ needs.pre-deployment-checks.outputs.environment }}' = 'production' ]; then
+              export VAULT_ADDR=https://vault.cloudya.net:8200
+            else
+              export VAULT_ADDR=http://localhost:8200
+            fi
+            
+            echo \"Using VAULT_ADDR: \$VAULT_ADDR\"
             
             # Check if init file exists
             if [ ! -f /root/.vault/init-${{ needs.pre-deployment-checks.outputs.environment }}.json ]; then
@@ -328,7 +342,14 @@ jobs:
         run: |
           echo "🔄 Starting key rotation process..."
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
-            export VAULT_ADDR=http://localhost:8200
+            # Set VAULT_ADDR based on environment
+            if [ '${{ needs.pre-deployment-checks.outputs.environment }}' = 'production' ]; then
+              export VAULT_ADDR=https://vault.cloudya.net:8200
+            else
+              export VAULT_ADDR=http://localhost:8200
+            fi
+            
+            echo \"Using VAULT_ADDR: \$VAULT_ADDR\"
             
             echo '⚠️ Key Rotation Process Starting...'
             echo 'This will generate new unseal keys and recovery keys.'
@@ -431,11 +452,18 @@ jobs:
           echo "🏥 Performing comprehensive health checks..."
           
           ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} '
-            export VAULT_ADDR=http://localhost:8200
+            # Set VAULT_ADDR based on environment
+            if [ "'${{ needs.pre-deployment-checks.outputs.environment }}'" = "production" ]; then
+              export VAULT_ADDR=https://vault.cloudya.net:8200
+            else
+              export VAULT_ADDR=http://localhost:8200
+            fi
+            
+            echo "Using VAULT_ADDR: $VAULT_ADDR"
             
             # Wait for Vault to be ready
             for i in {1..30}; do
-              if curl -f -s http://localhost:8200/v1/sys/health >/dev/null; then
+              if curl -f -s "$VAULT_ADDR/v1/sys/health" >/dev/null; then
                 break
               fi
               echo "Waiting for Vault to be ready... ($i/30)"
@@ -444,7 +472,7 @@ jobs:
             
             # Comprehensive health checks
             echo "🔍 Checking Vault health endpoint..."
-            HEALTH_STATUS=$(curl -f -s http://localhost:8200/v1/sys/health | jq -r ".initialized,.sealed")
+            HEALTH_STATUS=$(curl -f -s "$VAULT_ADDR/v1/sys/health" | jq -r ".initialized,.sealed")
             echo "Health status: $HEALTH_STATUS"
             
             echo "🔍 Checking systemd service status..."

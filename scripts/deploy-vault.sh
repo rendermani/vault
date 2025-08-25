@@ -18,6 +18,18 @@ VAULT_VERSION="1.17.3"
 CONFIG_SOURCE="/tmp/vault.hcl"
 BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
 
+# Set VAULT_ADDR based on environment - used throughout script
+set_vault_addr() {
+    if [ "$ENVIRONMENT" = "production" ]; then
+        export VAULT_ADDR=https://vault.cloudya.net:8200
+        export VAULT_CLUSTER_ADDR=https://vault.cloudya.net:8201
+    else
+        export VAULT_ADDR=http://localhost:8200
+        export VAULT_CLUSTER_ADDR=http://localhost:8201
+    fi
+    log_info "VAULT_ADDR set to: $VAULT_ADDR"
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -77,7 +89,12 @@ check_vault() {
 health_check() {
     log_step "Performing comprehensive health check..."
     
-    export VAULT_ADDR=http://localhost:8200
+    # Set VAULT_ADDR based on environment
+    if [ "$ENVIRONMENT" = "production" ]; then
+        export VAULT_ADDR=https://vault.cloudya.net:8200
+    else
+        export VAULT_ADDR=http://localhost:8200
+    fi
     
     # Check if Vault is installed
     if ! command -v vault >/dev/null 2>&1; then
@@ -96,8 +113,8 @@ health_check() {
     fi
     
     # Check Vault health endpoint
-    if curl -f -s --max-time 10 http://localhost:8200/v1/sys/health >/dev/null; then
-        HEALTH_JSON=$(curl -s http://localhost:8200/v1/sys/health)
+    if curl -f -s --max-time 10 "$VAULT_ADDR/v1/sys/health" >/dev/null; then
+        HEALTH_JSON=$(curl -s "$VAULT_ADDR/v1/sys/health")
         INITIALIZED=$(echo "$HEALTH_JSON" | jq -r '.initialized')
         SEALED=$(echo "$HEALTH_JSON" | jq -r '.sealed')
         
@@ -140,7 +157,12 @@ backup_vault() {
 EOF
     
     if systemctl is-active vault >/dev/null 2>&1; then
-        export VAULT_ADDR=http://localhost:8200
+        # Set VAULT_ADDR based on environment
+        if [ "$ENVIRONMENT" = "production" ]; then
+            export VAULT_ADDR=https://vault.cloudya.net:8200
+        else
+            export VAULT_ADDR=http://localhost:8200
+        fi
         
         # Backup Vault data directory
         if [ -d "/var/lib/vault" ]; then
@@ -306,9 +328,17 @@ log_level = "info"
 EOF
     fi
     
-    # Replace SERVER_IP with actual IP
-    SERVER_IP=$(hostname -I | awk '{print $1}')
-    sed -i "s/SERVER_IP/${SERVER_IP}/g" /etc/vault.d/vault.hcl
+    # Replace SERVER_IP with actual IP or use environment-specific addresses
+    if [ "$ENVIRONMENT" = "production" ]; then
+        # For production, use the configured domain
+        sed -i "s/SERVER_IP/vault.cloudya.net/g" /etc/vault.d/vault.hcl
+        log_info "Using production addresses: vault.cloudya.net"
+    else
+        # For other environments, use actual server IP
+        SERVER_IP=$(hostname -I | awk '{print $1}')
+        sed -i "s/SERVER_IP/${SERVER_IP}/g" /etc/vault.d/vault.hcl
+        log_info "Using server IP: $SERVER_IP"
+    fi
     
     # Set proper permissions
     chown vault:vault /etc/vault.d/vault.hcl
@@ -361,7 +391,12 @@ EOF
     sleep 10
     
     # Initialize if needed
-    export VAULT_ADDR=http://localhost:8200
+    # Set VAULT_ADDR based on environment
+    if [ "$ENVIRONMENT" = "production" ]; then
+        export VAULT_ADDR=https://vault.cloudya.net:8200
+    else
+        export VAULT_ADDR=http://localhost:8200
+    fi
     if vault status 2>&1 | grep -q "Initialized.*false"; then
         log_step "Initializing Vault..."
         
@@ -400,7 +435,12 @@ EOF
 configure_vault() {
     log_step "Configuring Vault..."
     
-    export VAULT_ADDR=http://localhost:8200
+    # Set VAULT_ADDR based on environment
+    if [ "$ENVIRONMENT" = "production" ]; then
+        export VAULT_ADDR=https://vault.cloudya.net:8200
+    else
+        export VAULT_ADDR=http://localhost:8200
+    fi
     
     # Load root token if available
     if [[ -f /root/.vault/root-token ]]; then
@@ -488,10 +528,14 @@ if [ -z "$ENVIRONMENT" ]; then
     exit 1
 fi
 
+# Set VAULT_ADDR based on environment
+set_vault_addr
+
 log_info "Starting Vault deployment script"
 log_info "Environment: $ENVIRONMENT"
 log_info "Action: $ACTION"
 log_info "Version: $VAULT_VERSION"
+log_info "Vault Address: $VAULT_ADDR"
 
 # Main execution
 case "$ACTION" in
