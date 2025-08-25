@@ -436,7 +436,13 @@ deploy_nomad() {
     export BOOTSTRAP_PHASE="true"
     
     # Pass bootstrap phase to service management and config templates
-    log_debug "Bootstrap phase variables set: VAULT_ENABLED=$VAULT_ENABLED, NOMAD_VAULT_BOOTSTRAP_PHASE=$NOMAD_VAULT_BOOTSTRAP_PHASE, BOOTSTRAP_PHASE=$BOOTSTRAP_PHASE"
+    log_warning "Bootstrap phase variables set: VAULT_ENABLED=$VAULT_ENABLED, NOMAD_VAULT_BOOTSTRAP_PHASE=$NOMAD_VAULT_BOOTSTRAP_PHASE, BOOTSTRAP_PHASE=$BOOTSTRAP_PHASE"
+    
+    # Verify environment variables are exported
+    log_debug "Environment check:"
+    log_debug "  VAULT_ENABLED=${VAULT_ENABLED:-unset}"
+    log_debug "  NOMAD_VAULT_BOOTSTRAP_PHASE=${NOMAD_VAULT_BOOTSTRAP_PHASE:-unset}"
+    log_debug "  BOOTSTRAP_PHASE=${BOOTSTRAP_PHASE:-unset}"
     
     # Use the service management script for installation
     log_step "Installing and starting HashiCorp services (Vault disabled)..."
@@ -458,10 +464,17 @@ deploy_nomad() {
         bash "$SCRIPT_DIR/manage-services.sh" health
         
         # Verify Nomad config doesn't have Vault enabled
-        if grep -q "vault {" /etc/nomad/nomad.hcl && grep -q "enabled = true" /etc/nomad/nomad.hcl; then
+        log_step "Validating Nomad configuration for bootstrap phase..."
+        if grep -A5 -B5 "vault {" /etc/nomad/nomad.hcl | grep -q "enabled = true"; then
             log_error "CRITICAL: Nomad configuration has Vault enabled during bootstrap!"
             log_error "This will cause circular dependency failure"
+            log_error "Configuration content:"
+            grep -A10 -B2 "vault {" /etc/nomad/nomad.hcl || true
             exit 1
+        elif grep -A5 -B5 "vault {" /etc/nomad/nomad.hcl | grep -q "enabled = false"; then
+            log_success "✅ Bootstrap validation passed: Vault integration is properly disabled"
+        else
+            log_warning "No Vault configuration found in Nomad config"
         fi
         
         log_success "✅ Nomad deployed successfully with Vault integration disabled"

@@ -89,9 +89,10 @@ consul {
   client_auto_join = true
 }
 
-# Vault integration
+# Vault integration (disabled during bootstrap phase)
+# Will be enabled after Vault deployment via reconfigure_nomad_with_vault()
 vault {
-  enabled = true
+  enabled = false
   address = "http://localhost:8200"
 }
 

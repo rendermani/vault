@@ -283,7 +283,19 @@ EOTLS
 EOCONSUL
 fi)
 
-$(if [[ "$vault_enabled" == "true" && "$vault_bootstrap_phase" != "true" ]]; then
+$(if [[ "$vault_bootstrap_phase" == "true" ]]; then
+cat <<EOVAULTBOOTSTRAP
+
+# Vault integration disabled during bootstrap phase
+# This prevents circular dependency: Nomad needs Vault, but Vault runs on Nomad
+# After Vault deployment, run: reconfigure_nomad_with_vault() to enable Vault integration
+vault {
+  enabled = false
+  address = "$vault_address"
+  # Will be enabled after Vault deployment
+}
+EOVAULTBOOTSTRAP
+elif [[ "$vault_enabled" == "true" ]]; then
 cat <<EOVAULT
 
 vault {
@@ -299,17 +311,15 @@ vault {
   tls_server_name = "vault.service.consul"
 }
 EOVAULT
-elif [[ "$vault_bootstrap_phase" == "true" ]]; then
-cat <<EOVAULTBOOTSTRAP
+else
+cat <<EOVAULTDISABLED
 
-# Vault integration disabled during bootstrap phase
-# This prevents circular dependency: Nomad needs Vault, but Vault runs on Nomad
-# After Vault deployment, run: reconfigure_nomad_with_vault() to enable Vault integration
-# vault {
-#   enabled = false
-#   # Will be enabled after Vault deployment
-# }
-EOVAULTBOOTSTRAP
+# Vault integration disabled
+vault {
+  enabled = false
+  address = "$vault_address"
+}
+EOVAULTDISABLED
 fi)
 
 # Telemetry configuration
@@ -1119,10 +1129,20 @@ reconfigure_nomad_with_vault() {
         node_role="both"
     fi
     
+    log_debug "Reconfiguration parameters: environment=$environment, vault_enabled=true, vault_bootstrap_phase=false"
+    
     # Generate new configuration with Vault enabled
     generate_nomad_config "$environment" "$datacenter" "$region" "/opt/nomad/data" "/opt/nomad/plugins" \
         "/var/log/nomad" "$node_role" "$encrypt_key" "$bind_addr" "$advertise_addr" \
         "$bootstrap_expect" "true" "127.0.0.1:8500" "true" "$VAULT_ADDR" "false" > "$nomad_config_dir/nomad.hcl.new"
+    
+    # Validate that new config has Vault enabled
+    if ! grep -A5 -B5 "vault {" "$nomad_config_dir/nomad.hcl.new" | grep -q "enabled = true"; then
+        log_error "Generated configuration does not have Vault enabled as expected!"
+        log_error "Configuration content:"
+        grep -A10 -B2 "vault {" "$nomad_config_dir/nomad.hcl.new" || true
+        return 1
+    fi
     
     # Validate new configuration
     if nomad config validate "$nomad_config_dir/nomad.hcl.new"; then

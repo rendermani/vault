@@ -207,6 +207,13 @@ install_configurations() {
     
     log_debug "Bootstrap configuration: VAULT_ENABLED=$vault_enabled, BOOTSTRAP_PHASE=$bootstrap_phase, NOMAD_VAULT_BOOTSTRAP_PHASE=$nomad_vault_bootstrap_phase"
     
+    # Force Vault to be disabled during bootstrap phase
+    if [[ "$bootstrap_phase" == "true" || "$nomad_vault_bootstrap_phase" == "true" ]]; then
+        log_warning "Bootstrap phase detected - forcing Vault integration to be disabled"
+        vault_enabled="false"
+        nomad_vault_bootstrap_phase="true"
+    fi
+    
     # Generate Nomad config with proper bootstrap phase handling
     generate_nomad_config "develop" "dc1" "global" "/opt/nomad/data" "/opt/nomad/plugins" "/var/log/nomad" \
         "both" "$(openssl rand -base64 24)" "0.0.0.0" "" "1" "true" "127.0.0.1:8500" \
