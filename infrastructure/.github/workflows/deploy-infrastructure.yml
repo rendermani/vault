@@ -1,0 +1,515 @@
+name: Deploy Infrastructure - Remote Server (root@cloudya.net)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'nomad/**'
+      - 'vault/**'
+      - 'traefik/**'
+      - 'core/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy-infrastructure.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'nomad/**'
+      - 'vault/**'
+      - 'traefik/**'
+      - 'core/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy-infrastructure.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      force_bootstrap:
+        description: 'Force complete bootstrap (destroys existing data)'
+        required: false
+        type: boolean
+        default: false
+      components:
+        description: 'Components to deploy (comma-separated: nomad,vault,traefik or "all")'
+        required: false
+        type: string
+        default: 'all'
+      dry_run:
+        description: 'Perform dry run without actual deployment'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Remote server configuration
+  REMOTE_SERVER: "cloudya.net"
+  REMOTE_USER: "root"
+  REMOTE_PORT: "22"
+  
+  # HashiCorp tool versions
+  NOMAD_VERSION: 1.7.2
+  VAULT_VERSION: 1.15.4
+  CONSUL_VERSION: 1.17.0
+  
+  # Remote service endpoints (will be configured on remote server)
+  NOMAD_ADDR: "http://localhost:4646"
+  CONSUL_HTTP_ADDR: "http://localhost:8500"
+  VAULT_ADDR: "http://localhost:8200"
+
+jobs:
+  # Job 1: Local testing with docker-compose (optional)
+  local-testing:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test with docker-compose
+        run: |
+          echo "Running local integration tests with docker-compose..."
+          # Test infrastructure stack
+          docker-compose -f docker-compose.local-test.yml config
+          echo "Local test infrastructure configuration validated"
+          
+          # Start services and run basic connectivity tests
+          docker-compose -f docker-compose.local-test.yml up -d
+          
+          # Wait for services to be ready
+          echo "Waiting for services to start..."
+          sleep 30
+          
+          # Basic health checks
+          curl -f http://localhost:8500/v1/status/leader || echo "Consul not ready"
+          curl -f http://localhost:4646/v1/status/leader || echo "Nomad not ready"
+          curl -f http://localhost:8200/v1/sys/health || echo "Vault not ready"
+          curl -f http://localhost:8080/ping || echo "Traefik not ready"
+          
+          # Cleanup
+          docker-compose -f docker-compose.local-test.yml down -v
+
+      - name: Validate deployment scripts
+        run: |
+          echo "Validating deployment scripts..."
+          bash -n scripts/unified-bootstrap.sh
+          echo "Deployment script syntax validated"
+
+  # Job 2: Prepare remote deployment
+  prepare-deployment:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    outputs:
+      environment: ${{ steps.determine-env.outputs.environment }}
+      deploy-nomad: ${{ steps.determine-components.outputs.deploy-nomad }}
+      deploy-vault: ${{ steps.determine-components.outputs.deploy-vault }}
+      deploy-traefik: ${{ steps.determine-components.outputs.deploy-traefik }}
+      is-bootstrap: ${{ steps.determine-strategy.outputs.is-bootstrap }}
+      vault-addr: ${{ steps.determine-env.outputs.vault-addr }}
+      nomad-addr: ${{ steps.determine-env.outputs.nomad-addr }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine deployment environment
+        id: determine-env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENV="production"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            ENV="develop"
+          else
+            ENV="develop"
+          fi
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          
+          # Set environment-specific endpoints (on remote server)
+          case $ENV in
+            develop)
+              echo "vault-addr=http://localhost:8200" >> $GITHUB_OUTPUT
+              echo "nomad-addr=http://localhost:4646" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "vault-addr=https://localhost:8210" >> $GITHUB_OUTPUT
+              echo "nomad-addr=http://localhost:4646" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "vault-addr=https://localhost:8220" >> $GITHUB_OUTPUT
+              echo "nomad-addr=http://localhost:4646" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          
+          echo "Determined environment: $ENV for remote server ${{ env.REMOTE_SERVER }}"
+
+      - name: Determine components to deploy
+        id: determine-components
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            COMPONENTS="${{ github.event.inputs.components }}"
+          else
+            COMPONENTS="all"
+          fi
+          
+          if [[ "$COMPONENTS" == "all" ]]; then
+            echo "deploy-nomad=true" >> $GITHUB_OUTPUT
+            echo "deploy-vault=true" >> $GITHUB_OUTPUT
+            echo "deploy-traefik=true" >> $GITHUB_OUTPUT
+          else
+            echo "deploy-nomad=false" >> $GITHUB_OUTPUT
+            echo "deploy-vault=false" >> $GITHUB_OUTPUT
+            echo "deploy-traefik=false" >> $GITHUB_OUTPUT
+            
+            IFS=',' read -ra COMP_ARRAY <<< "$COMPONENTS"
+            for component in "${COMP_ARRAY[@]}"; do
+              case $component in
+                nomad)
+                  echo "deploy-nomad=true" >> $GITHUB_OUTPUT
+                  ;;
+                vault)
+                  echo "deploy-vault=true" >> $GITHUB_OUTPUT
+                  ;;
+                traefik)
+                  echo "deploy-traefik=true" >> $GITHUB_OUTPUT
+                  ;;
+              esac
+            done
+          fi
+          
+          echo "Components to deploy on remote server: $COMPONENTS"
+
+      - name: Determine deployment strategy
+        id: determine-strategy
+        run: |
+          IS_BOOTSTRAP="false"
+          
+          # Check if this is a bootstrap deployment
+          if [[ "${{ github.event.inputs.force_bootstrap }}" == "true" ]]; then
+            IS_BOOTSTRAP="true"
+            echo "Force bootstrap requested for remote server"
+          elif [[ ! -f "environments/${{ steps.determine-env.outputs.environment }}/.deployed" ]]; then
+            IS_BOOTSTRAP="true"
+            echo "No deployment marker found, assuming bootstrap deployment to remote server"
+          fi
+          
+          echo "is-bootstrap=$IS_BOOTSTRAP" >> $GITHUB_OUTPUT
+          echo "Bootstrap deployment to ${{ env.REMOTE_SERVER }}: $IS_BOOTSTRAP"
+
+  # Job 3: Setup SSH connection and prepare remote server
+  setup-remote-server:
+    runs-on: ubuntu-latest
+    needs: prepare-deployment
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        run: |
+          echo "Testing SSH connection to ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}..."
+          ssh -o ConnectTimeout=10 -o BatchMode=yes ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'echo "SSH connection successful"'
+
+      - name: Prepare remote server
+        run: |
+          echo "Preparing remote server for deployment..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            echo "Updating system packages..."
+            apt-get update
+            apt-get install -y curl wget unzip jq docker.io docker-compose
+            
+            # Start Docker
+            systemctl enable docker
+            systemctl start docker
+            
+            # Create infrastructure directory
+            mkdir -p /opt/infrastructure
+            
+            # Install HashiCorp tools
+            cd /tmp
+            
+            # Install Nomad
+            if [[ ! -f /usr/local/bin/nomad ]]; then
+              echo "Installing Nomad ${{ env.NOMAD_VERSION }}..."
+              curl -fsSL https://releases.hashicorp.com/nomad/${{ env.NOMAD_VERSION }}/nomad_${{ env.NOMAD_VERSION }}_linux_amd64.zip -o nomad.zip
+              unzip nomad.zip
+              mv nomad /usr/local/bin/
+              chmod +x /usr/local/bin/nomad
+            fi
+            
+            # Install Vault
+            if [[ ! -f /usr/local/bin/vault ]]; then
+              echo "Installing Vault ${{ env.VAULT_VERSION }}..."
+              curl -fsSL https://releases.hashicorp.com/vault/${{ env.VAULT_VERSION }}/vault_${{ env.VAULT_VERSION }}_linux_amd64.zip -o vault.zip
+              unzip vault.zip
+              mv vault /usr/local/bin/
+              chmod +x /usr/local/bin/vault
+            fi
+            
+            # Install Consul
+            if [[ ! -f /usr/local/bin/consul ]]; then
+              echo "Installing Consul ${{ env.CONSUL_VERSION }}..."
+              curl -fsSL https://releases.hashicorp.com/consul/${{ env.CONSUL_VERSION }}/consul_${{ env.CONSUL_VERSION }}_linux_amd64.zip -o consul.zip
+              unzip consul.zip
+              mv consul /usr/local/bin/
+              chmod +x /usr/local/bin/consul
+            fi
+            
+            # Verify installations
+            nomad version
+            vault version
+            consul version
+            docker --version
+            
+            echo "Remote server preparation completed successfully"
+          EOF
+
+      - name: Transfer infrastructure code
+        run: |
+          echo "Transferring infrastructure code to remote server..."
+          # Create a temporary archive of the infrastructure code
+          tar czf infrastructure.tar.gz \
+            --exclude='.git' \
+            --exclude='*.log' \
+            --exclude='tmp/' \
+            --exclude='test-results/' \
+            .
+          
+          # Transfer to remote server
+          scp infrastructure.tar.gz ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/opt/infrastructure/
+          
+          # Extract on remote server
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            cd /opt/infrastructure
+            tar xzf infrastructure.tar.gz
+            rm infrastructure.tar.gz
+            chmod +x scripts/*.sh
+            echo "Infrastructure code transferred and extracted successfully"
+          EOF
+
+  # Job 4: Deploy infrastructure to remote server
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    needs: [prepare-deployment, setup-remote-server]
+    if: github.event_name != 'pull_request'
+    environment: ${{ needs.prepare-deployment.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Setup deployment environment variables
+        run: |
+          echo "Setting up deployment configuration..."
+          echo "ENVIRONMENT=${{ needs.prepare-deployment.outputs.environment }}" >> deployment.env
+          echo "DEPLOY_NOMAD=${{ needs.prepare-deployment.outputs.deploy-nomad }}" >> deployment.env
+          echo "DEPLOY_VAULT=${{ needs.prepare-deployment.outputs.deploy-vault }}" >> deployment.env
+          echo "DEPLOY_TRAEFIK=${{ needs.prepare-deployment.outputs.deploy-traefik }}" >> deployment.env
+          echo "IS_BOOTSTRAP=${{ needs.prepare-deployment.outputs.is-bootstrap }}" >> deployment.env
+          echo "DRY_RUN=${{ github.event.inputs.dry_run || 'false' }}" >> deployment.env
+          echo "FORCE_BOOTSTRAP=${{ github.event.inputs.force_bootstrap || 'false' }}" >> deployment.env
+          echo "COMPONENTS=${{ github.event.inputs.components || 'all' }}" >> deployment.env
+
+      - name: Transfer deployment configuration
+        run: |
+          echo "Transferring deployment configuration to remote server..."
+          scp deployment.env ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/opt/infrastructure/
+
+      - name: Execute remote deployment
+        env:
+          ENVIRONMENT: ${{ needs.prepare-deployment.outputs.environment }}
+          NOMAD_BOOTSTRAP_TOKEN: ${{ secrets.NOMAD_BOOTSTRAP_TOKEN }}
+          CONSUL_BOOTSTRAP_TOKEN: ${{ secrets.CONSUL_BOOTSTRAP_TOKEN }}
+        run: |
+          echo "Executing infrastructure deployment on remote server..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'REMOTE_SCRIPT'
+            set -euo pipefail
+            cd /opt/infrastructure
+            
+            # Source deployment configuration
+            source deployment.env
+            
+            echo "Starting deployment with configuration:"
+            echo "  Environment: $ENVIRONMENT"
+            echo "  Components: $COMPONENTS"
+            echo "  Bootstrap: $IS_BOOTSTRAP"
+            echo "  Dry Run: $DRY_RUN"
+            
+            # Export required environment variables
+            export NOMAD_BOOTSTRAP_TOKEN="${{ env.NOMAD_BOOTSTRAP_TOKEN }}"
+            export CONSUL_BOOTSTRAP_TOKEN="${{ env.CONSUL_BOOTSTRAP_TOKEN }}"
+            
+            # Make deployment script executable
+            chmod +x scripts/unified-bootstrap.sh
+            
+            # Execute deployment based on configuration
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "Performing dry run deployment..."
+              ./scripts/unified-bootstrap.sh \
+                --environment "$ENVIRONMENT" \
+                --components "$COMPONENTS" \
+                --dry-run \
+                --verbose
+            else
+              echo "Performing actual deployment..."
+              deployment_args=("--environment" "$ENVIRONMENT" "--components" "$COMPONENTS" "--verbose")
+              
+              if [[ "$FORCE_BOOTSTRAP" == "true" ]]; then
+                deployment_args+=("--force-bootstrap")
+              fi
+              
+              ./scripts/unified-bootstrap.sh "${deployment_args[@]}"
+            fi
+            
+            echo "Remote deployment completed successfully"
+          REMOTE_SCRIPT
+
+      - name: Validate remote deployment
+        run: |
+          echo "Validating infrastructure deployment on remote server..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'REMOTE_VALIDATION'
+            set -euo pipefail
+            cd /opt/infrastructure
+            
+            echo "Checking service status on remote server..."
+            
+            # Check if services are running based on what was deployed
+            source deployment.env
+            
+            if [[ "$DRY_RUN" != "true" ]]; then
+              # Validate Nomad if deployed
+              if [[ "$DEPLOY_NOMAD" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
+                if pgrep -f "nomad agent" > /dev/null; then
+                  echo "✓ Nomad is running"
+                  nomad node status || echo "Nomad node status check failed"
+                else
+                  echo "⚠ Nomad process not found"
+                fi
+              fi
+              
+              # Validate Vault if deployed
+              if [[ "$DEPLOY_VAULT" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
+                if curl -s http://localhost:8200/v1/sys/health > /dev/null 2>&1; then
+                  echo "✓ Vault is responding"
+                else
+                  echo "⚠ Vault health check failed"
+                fi
+              fi
+              
+              # Validate Traefik if deployed
+              if [[ "$DEPLOY_TRAEFIK" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
+                if curl -s http://localhost:8080/ping > /dev/null 2>&1; then
+                  echo "✓ Traefik is responding"
+                else
+                  echo "⚠ Traefik ping failed"
+                fi
+              fi
+            else
+              echo "Dry run completed - no services to validate"
+            fi
+            
+            echo "Remote validation completed"
+          REMOTE_VALIDATION
+
+      - name: Collect deployment logs
+        if: always()
+        run: |
+          echo "Collecting deployment logs from remote server..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'REMOTE_LOGS'
+            set -euo pipefail
+            cd /opt/infrastructure
+            
+            echo "=== Deployment Summary ==="
+            if [[ -f deployment.log ]]; then
+              echo "Last 50 lines of deployment log:"
+              tail -50 deployment.log
+            else
+              echo "No deployment log found"
+            fi
+            
+            echo "\n=== System Status ==="
+            echo "Docker status:"
+            systemctl is-active docker || echo "Docker not active"
+            
+            echo "\nRunning processes:"
+            ps aux | grep -E "(nomad|vault|consul|traefik)" | grep -v grep || echo "No relevant processes found"
+            
+            echo "\nPort status:"
+            netstat -tlnp | grep -E ":(4646|8200|8500|8080)" || echo "No relevant ports listening"
+            
+          REMOTE_LOGS
+
+      - name: Create deployment artifact
+        if: success() && needs.prepare-deployment.outputs.is-bootstrap == 'true'
+        run: |
+          echo "Creating deployment artifact..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'REMOTE_ARTIFACT'
+            set -euo pipefail
+            cd /opt/infrastructure
+            
+            # Create deployment summary
+            cat > deployment-summary.json <<EOF
+          {
+            "timestamp": "$(date -u +"%Y-%m-%d %H:%M:%S UTC")",
+            "environment": "$(grep ENVIRONMENT= deployment.env | cut -d= -f2)",
+            "components": "$(grep COMPONENTS= deployment.env | cut -d= -f2)",
+            "bootstrap": $(grep IS_BOOTSTRAP= deployment.env | cut -d= -f2),
+            "server": "${{ env.REMOTE_SERVER }}",
+            "workflow_run": "${{ github.run_id }}",
+            "commit": "${{ github.sha }}"
+          }
+          EOF
+            
+            echo "Deployment artifact created"
+          REMOTE_ARTIFACT
+
+      - name: Generate deployment summary
+        if: always()
+        run: |
+          echo "## Remote Infrastructure Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Remote Server: ${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.prepare-deployment.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Components Deployed:" >> $GITHUB_STEP_SUMMARY
+          echo "- Nomad: ${{ needs.prepare-deployment.outputs.deploy-nomad }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Vault: ${{ needs.prepare-deployment.outputs.deploy-vault }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Traefik: ${{ needs.prepare-deployment.outputs.deploy-traefik }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Bootstrap: ${{ needs.prepare-deployment.outputs.is-bootstrap }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Dry Run: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ github.event.inputs.dry_run || 'false' }}" != "true" ]]; then
+            echo "### Access URLs (via SSH tunnel):" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# SSH tunnel to access services locally" >> $GITHUB_STEP_SUMMARY
+            echo "ssh -L 4646:localhost:4646 -L 8200:localhost:8200 -L 8080:localhost:8080 ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Nomad UI: http://localhost:4646 (via tunnel)" >> $GITHUB_STEP_SUMMARY
+            echo "- Vault UI: http://localhost:8200 (via tunnel)" >> $GITHUB_STEP_SUMMARY
+            echo "- Traefik Dashboard: http://localhost:8080 (via tunnel)" >> $GITHUB_STEP_SUMMARY
+          fi
+

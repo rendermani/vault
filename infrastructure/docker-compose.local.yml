@@ -1,0 +1,332 @@
+version: '3.8'
+
+# Local Development Docker Compose
+# This provides a complete local testing environment for the Cloudya infrastructure
+# Use this for development and testing before deploying to production
+
+networks:
+  cloudya-local:
+    name: cloudya-local
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  consul_data:
+    driver: local
+  vault_data:
+    driver: local
+  vault_logs:
+    driver: local
+  vault_config:
+    driver: local
+  nomad_data:
+    driver: local
+  traefik_certs:
+    driver: local
+  traefik_config:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  minio_data:
+    driver: local
+
+services:
+  # Consul - Service Discovery and Configuration
+  consul:
+    image: hashicorp/consul:1.19.2
+    container_name: consul-local
+    hostname: consul
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "8500:8500"
+      - "8300:8300"
+      - "8301:8301"
+      - "8302:8302"
+    volumes:
+      - consul_data:/consul/data
+      - ./consul/config:/consul/config:ro
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+      - CONSUL_CLIENT_INTERFACE=eth0
+    command: >
+      consul agent 
+      -server 
+      -bootstrap-expect=1 
+      -ui-config-enabled 
+      -data-dir=/consul/data 
+      -config-dir=/consul/config 
+      -client=0.0.0.0 
+      -bind=172.20.0.10
+      -datacenter=dc1
+      -node=consul-local
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "consul members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Vault - Secrets Management (Development Mode)
+  vault-dev:
+    image: hashicorp/vault:1.17.6
+    container_name: vault-local-dev
+    hostname: vault-dev
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.20
+    ports:
+      - "8200:8200"
+    volumes:
+      - vault_data:/vault/data
+      - vault_logs:/vault/logs
+      - vault_config:/vault/config
+      - ./vault/policies:/vault/policies:ro
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=dev-only-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+      - VAULT_ADDR=http://127.0.0.1:8200
+      - VAULT_API_ADDR=http://vault-dev:8200
+      - VAULT_LOG_LEVEL=INFO
+    cap_add:
+      - IPC_LOCK
+    command: vault server -dev -dev-listen-address=0.0.0.0:8200
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "vault status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Nomad - Workload Orchestration
+  nomad:
+    image: hashicorp/nomad:1.8.4
+    container_name: nomad-local
+    hostname: nomad
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.30
+    ports:
+      - "4646:4646"
+      - "4647:4647"
+      - "4648:4648"
+    volumes:
+      - nomad_data:/nomad/data
+      - ./nomad/config:/nomad/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
+    environment:
+      - NOMAD_LOCAL_CONFIG={"datacenter":"dc1","data_dir":"/nomad/data","log_level":"INFO","server":{"enabled":true,"bootstrap_expect":1},"client":{"enabled":true},"consul":{"address":"consul:8500"},"vault":{"enabled":true,"address":"http://vault-dev:8200","token":"dev-only-token"}}
+    command: nomad agent -config=/nomad/config
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      vault-dev:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nomad node status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # Traefik - Reverse Proxy and Load Balancer
+  traefik:
+    image: traefik:v3.2.3
+    container_name: traefik-local
+    hostname: traefik
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.40
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard
+    volumes:
+      - traefik_certs:/letsencrypt
+      - traefik_config:/config
+      - ./traefik/config:/etc/traefik:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - TRAEFIK_LOG_LEVEL=INFO
+      - TRAEFIK_API_DASHBOARD=true
+      - TRAEFIK_API_INSECURE=true
+      - TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:80
+      - TRAEFIK_ENTRYPOINTS_WEBSECURE_ADDRESS=:443
+      - TRAEFIK_PROVIDERS_DOCKER=true
+      - TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT=false
+      - TRAEFIK_PROVIDERS_NOMAD_ENDPOINTS=http://nomad:4646
+      - TRAEFIK_PROVIDERS_CONSUL_ENDPOINTS=http://consul:8500
+      - TRAEFIK_PROVIDERS_FILE_DIRECTORY=/config/dynamic
+      - TRAEFIK_PROVIDERS_FILE_WATCH=true
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL=admin@cloudya.net
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_STORAGE=/letsencrypt/acme.json
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_HTTPCHALLENGE_ENTRYPOINT=web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.localhost`)"
+      - "traefik.http.routers.traefik.entrypoints=web"
+      - "traefik.http.routers.traefik.service=api@internal"
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      nomad:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus-local
+    hostname: prometheus
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.50
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./monitoring/prometheus:/etc/prometheus:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.external-url=http://prometheus.localhost:9090'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.localhost`)"
+      - "traefik.http.routers.prometheus.entrypoints=web"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+    restart: unless-stopped
+    depends_on:
+      - consul
+      - vault-dev
+      - nomad
+
+  # Grafana - Monitoring Dashboard
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: grafana-local
+    hostname: grafana
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.60
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - GF_SERVER_ROOT_URL=http://grafana.localhost:3000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.localhost`)"
+      - "traefik.http.routers.grafana.entrypoints=web"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # MinIO - Object Storage (S3 Compatible)
+  minio:
+    image: minio/minio:RELEASE.2024-08-29T01-40-52Z
+    container_name: minio-local
+    hostname: minio
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.70
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+      - MINIO_BROWSER_REDIRECT_URL=http://minio.localhost:9001
+    command: server /data --console-address ":9001"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.minio-api.rule=Host(`minio.localhost`)"
+      - "traefik.http.routers.minio-api.entrypoints=web"
+      - "traefik.http.routers.minio-api.service=minio-api"
+      - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
+      - "traefik.http.routers.minio-console.rule=Host(`minio-console.localhost`)"
+      - "traefik.http.routers.minio-console.entrypoints=web"
+      - "traefik.http.routers.minio-console.service=minio-console"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # PostgreSQL - Database for applications
+  postgres:
+    image: postgres:16.4-alpine
+    container_name: postgres-local
+    hostname: postgres
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.80
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      - POSTGRES_DB=cloudya
+      - POSTGRES_USER=cloudya
+      - POSTGRES_PASSWORD=cloudya_local_password
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudya -d cloudya"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis - Caching and Session Store
+  redis:
+    image: redis:7.4.0-alpine
+    container_name: redis-local
+    hostname: redis
+    networks:
+      cloudya-local:
+        ipv4_address: 172.20.0.90
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    environment:
+      - REDIS_PASSWORD=redis_local_password
+    command: redis-server --requirepass redis_local_password --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "redis_local_password", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

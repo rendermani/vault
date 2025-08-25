@@ -1,0 +1,620 @@
+{
+  "info": {
+    "name": "Vault API Comprehensive Collection",
+    "description": "Complete collection of HashiCorp Vault API endpoints for testing and development",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "vault_addr",
+      "value": "http://127.0.0.1:8200",
+      "description": "Vault server address"
+    },
+    {
+      "key": "vault_token",
+      "value": "",
+      "description": "Vault authentication token"
+    },
+    {
+      "key": "api_version",
+      "value": "v1",
+      "description": "Vault API version"
+    }
+  ],
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "System Health & Status",
+      "description": "Core system health and status endpoints",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/health",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "health"]
+            },
+            "description": "Check Vault health status"
+          },
+          "response": []
+        },
+        {
+          "name": "Health Check (Standby OK)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/health?standbyok=true",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "health"],
+              "query": [
+                {
+                  "key": "standbyok",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Check health allowing standby nodes"
+          },
+          "response": []
+        },
+        {
+          "name": "Seal Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/seal-status",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "seal-status"]
+            },
+            "description": "Get seal status information"
+          },
+          "response": []
+        },
+        {
+          "name": "Leader Information",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/leader",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "leader"]
+            },
+            "description": "Get cluster leader information"
+          },
+          "response": []
+        },
+        {
+          "name": "Host Information",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/host-info",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "host-info"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}",
+                "description": "Vault authentication token"
+              }
+            ],
+            "description": "Get host system information"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "description": "Authentication method endpoints",
+      "item": [
+        {
+          "name": "List Auth Methods",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/auth",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "auth"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "List all enabled authentication methods"
+          },
+          "response": []
+        },
+        {
+          "name": "Token Self Lookup",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/auth/token/lookup-self",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "auth", "token", "lookup-self"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Look up information about current token"
+          },
+          "response": []
+        },
+        {
+          "name": "Token Self Renew",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/auth/token/renew-self",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "auth", "token", "renew-self"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"increment\": \"1h\"\n}"
+            },
+            "description": "Renew current token"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Token",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/auth/token/create",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "auth", "token", "create"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"policies\": [\"default\"],\n  \"ttl\": \"1h\",\n  \"renewable\": true\n}"
+            },
+            "description": "Create a new token"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Secrets Engines",
+      "description": "Secrets engine endpoints",
+      "item": [
+        {
+          "name": "List Mounts",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/mounts",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "mounts"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "List all mounted secrets engines"
+          },
+          "response": []
+        },
+        {
+          "name": "KV v2 - List Secrets",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/secret/metadata?list=true",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "secret", "metadata"],
+              "query": [
+                {
+                  "key": "list",
+                  "value": "true"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "List secrets in KV v2 engine"
+          },
+          "response": []
+        },
+        {
+          "name": "KV v2 - Read Secret",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/secret/data/myapp/config",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "secret", "data", "myapp", "config"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Read a secret from KV v2 engine"
+          },
+          "response": []
+        },
+        {
+          "name": "KV v2 - Write Secret",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/secret/data/myapp/config",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "secret", "data", "myapp", "config"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"password\": \"secret123\",\n    \"username\": \"admin\",\n    \"api_key\": \"abcd-efgh-ijkl\"\n  }\n}"
+            },
+            "description": "Write a secret to KV v2 engine"
+          },
+          "response": []
+        },
+        {
+          "name": "PKI - Get CA Certificate",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/pki/ca/pem",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "pki", "ca", "pem"]
+            },
+            "description": "Get PKI CA certificate in PEM format"
+          },
+          "response": []
+        },
+        {
+          "name": "Transit - List Keys",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/transit/keys?list=true",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "transit", "keys"],
+              "query": [
+                {
+                  "key": "list",
+                  "value": "true"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "List transit encryption keys"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Policy Management",
+      "description": "Policy management endpoints",
+      "item": [
+        {
+          "name": "List ACL Policies",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/policies/acl?list=true",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "policies", "acl"],
+              "query": [
+                {
+                  "key": "list",
+                  "value": "true"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "List all ACL policies"
+          },
+          "response": []
+        },
+        {
+          "name": "Read Policy",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/policies/acl/default",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "policies", "acl", "default"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Read a specific ACL policy"
+          },
+          "response": []
+        },
+        {
+          "name": "Create/Update Policy",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/policies/acl/my-policy",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "policies", "acl", "my-policy"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"policy\": \"path \\\"secret/data/*\\\" {\\n  capabilities = [\\\"read\\\", \\\"list\\\"]\\n}\\n\\npath \\\"secret/metadata/*\\\" {\\n  capabilities = [\\\"list\\\"]\\n}\"\n}"
+            },
+            "description": "Create or update an ACL policy"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Audit & Monitoring",
+      "description": "Audit and monitoring endpoints",
+      "item": [
+        {
+          "name": "List Audit Devices",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/audit",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "audit"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "List all enabled audit devices"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Metrics (Prometheus)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/metrics",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "metrics"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Get Prometheus-format metrics"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Metrics (JSON)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/metrics?format=json",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "metrics"],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "json"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Get JSON-format metrics"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Administration",
+      "description": "Administrative endpoints",
+      "item": [
+        {
+          "name": "Initialization Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/init",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "init"]
+            },
+            "description": "Check if Vault is initialized"
+          },
+          "response": []
+        },
+        {
+          "name": "Initialize Vault",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/init",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "init"]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"secret_shares\": 5,\n  \"secret_threshold\": 3\n}"
+            },
+            "description": "Initialize Vault with Shamir's secret sharing"
+          },
+          "response": []
+        },
+        {
+          "name": "Unseal Vault",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/unseal",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "unseal"]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"your-unseal-key-here\"\n}"
+            },
+            "description": "Provide an unseal key to unseal Vault"
+          },
+          "response": []
+        },
+        {
+          "name": "Seal Vault",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/seal",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "seal"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Seal Vault (requires root token or sudo capability)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Storage & Raft",
+      "description": "Storage backend and Raft endpoints",
+      "item": [
+        {
+          "name": "Raft Configuration",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/storage/raft/configuration",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "storage", "raft", "configuration"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Get Raft cluster configuration"
+          },
+          "response": []
+        },
+        {
+          "name": "Raft Snapshot",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{vault_addr}}/{{api_version}}/sys/storage/raft/snapshot",
+              "host": ["{{vault_addr}}"],
+              "path": ["{{api_version}}", "sys", "storage", "raft", "snapshot"]
+            },
+            "header": [
+              {
+                "key": "X-Vault-Token",
+                "value": "{{vault_token}}"
+              }
+            ],
+            "description": "Take a Raft snapshot"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

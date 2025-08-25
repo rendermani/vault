@@ -1,0 +1,1917 @@
+=== NOMAD JOB VALIDATION ===
+Driver configuration not validated since connection to Nomad agent couldn't be established.
+
+Job validation errors:
+1 error occurred:
+	* Task group vault validation failed: 1 error occurred:
+	* 1 error occurred:
+	* Auto Promote requires a Canary count greater than zero
+
+
+
+
+
+
+---
+Driver configuration not validated since connection to Nomad agent couldn't be established.
+
+Job validation successful
+---
+Driver configuration not validated since connection to Nomad agent couldn't be established.
+
+Job validation errors:
+1 error occurred:
+	* Task group vault validation failed: 1 error occurred:
+	* Task vault validation failed: 1 error occurred:
+	* 1 error occurred:
+	* check "service: \"vault-production\" check" is duplicate
+
+
+
+
+
+
+
+
+---
+Driver configuration not validated since connection to Nomad agent couldn't be established.
+
+Job validation errors:
+1 error occurred:
+	* Task group traefik validation failed: 1 error occurred:
+	* 1 error occurred:
+	* Auto Promote requires a Canary count greater than zero
+
+
+
+
+
+
+---
+Driver configuration not validated since connection to Nomad agent couldn't be established.
+
+Job validation errors:
+1 error occurred:
+	* Task group traefik validation failed: 1 error occurred:
+	* 1 error occurred:
+	* Auto Promote requires a Canary count greater than zero
+
+
+
+
+
+
+---
+
+
+=== VAULT HCL CONFIGURATION VALIDATION ===
+Usage: vault <command> [args]
+
+Common commands:
+    read        Read data and retrieves secrets
+    write       Write data, configuration, and secrets
+    delete      Delete secrets and configuration
+    list        List data or secrets
+    login       Authenticate locally
+    agent       Start a Vault agent
+    server      Start a Vault server
+    status      Print seal and HA status
+    unwrap      Unwrap a wrapped secret
+
+Other commands:
+    audit                Interact with audit devices
+    auth                 Interact with auth methods
+    debug                Runs the debug command
+    events               
+    hcp                  
+    kv                   Interact with Vault's Key-Value storage
+    lease                Interact with leases
+    monitor              Stream log messages from a Vault server
+    namespace            Interact with namespaces
+    operator             Perform operator-specific tasks
+    patch                Patch data, configuration, and secrets
+    path-help            Retrieve API help for paths
+    pki                  Interact with Vault's PKI Secrets Engine
+    plugin               Interact with Vault plugins and catalog
+    policy               Interact with policies
+    print                Prints runtime configurations
+    proxy                Start a Vault Proxy
+    secrets              Interact with secrets engines
+    ssh                  Initiate an SSH session
+    token                Interact with tokens
+    transform            Interact with Vault's Transform Secrets Engine
+    transit              Interact with Vault's Transit Secrets Engine
+    version-history      Prints the version history of the target Vault server
+---
+Usage: vault <command> [args]
+
+Common commands:
+    read        Read data and retrieves secrets
+    write       Write data, configuration, and secrets
+    delete      Delete secrets and configuration
+    list        List data or secrets
+    login       Authenticate locally
+    agent       Start a Vault agent
+    server      Start a Vault server
+    status      Print seal and HA status
+    unwrap      Unwrap a wrapped secret
+
+Other commands:
+    audit                Interact with audit devices
+    auth                 Interact with auth methods
+    debug                Runs the debug command
+    events               
+    hcp                  
+    kv                   Interact with Vault's Key-Value storage
+    lease                Interact with leases
+    monitor              Stream log messages from a Vault server
+    namespace            Interact with namespaces
+    operator             Perform operator-specific tasks
+    patch                Patch data, configuration, and secrets
+    path-help            Retrieve API help for paths
+    pki                  Interact with Vault's PKI Secrets Engine
+    plugin               Interact with Vault plugins and catalog
+    policy               Interact with policies
+    print                Prints runtime configurations
+    proxy                Start a Vault Proxy
+    secrets              Interact with secrets engines
+    ssh                  Initiate an SSH session
+    token                Interact with tokens
+    transform            Interact with Vault's Transform Secrets Engine
+    transit              Interact with Vault's Transit Secrets Engine
+    version-history      Prints the version history of the target Vault server
+---
+Usage: vault <command> [args]
+
+Common commands:
+    read        Read data and retrieves secrets
+    write       Write data, configuration, and secrets
+    delete      Delete secrets and configuration
+    list        List data or secrets
+    login       Authenticate locally
+    agent       Start a Vault agent
+    server      Start a Vault server
+    status      Print seal and HA status
+    unwrap      Unwrap a wrapped secret
+
+Other commands:
+    audit                Interact with audit devices
+    auth                 Interact with auth methods
+    debug                Runs the debug command
+    events               
+    hcp                  
+    kv                   Interact with Vault's Key-Value storage
+    lease                Interact with leases
+    monitor              Stream log messages from a Vault server
+    namespace            Interact with namespaces
+    operator             Perform operator-specific tasks
+    patch                Patch data, configuration, and secrets
+    path-help            Retrieve API help for paths
+    pki                  Interact with Vault's PKI Secrets Engine
+    plugin               Interact with Vault plugins and catalog
+    policy               Interact with policies
+    print                Prints runtime configurations
+    proxy                Start a Vault Proxy
+    secrets              Interact with secrets engines
+    ssh                  Initiate an SSH session
+    token                Interact with tokens
+    transform            Interact with Vault's Transform Secrets Engine
+    transit              Interact with Vault's Transit Secrets Engine
+    version-history      Prints the version history of the target Vault server
+---
+Usage: vault <command> [args]
+
+Common commands:
+    read        Read data and retrieves secrets
+    write       Write data, configuration, and secrets
+    delete      Delete secrets and configuration
+    list        List data or secrets
+    login       Authenticate locally
+    agent       Start a Vault agent
+    server      Start a Vault server
+    status      Print seal and HA status
+    unwrap      Unwrap a wrapped secret
+
+Other commands:
+    audit                Interact with audit devices
+    auth                 Interact with auth methods
+    debug                Runs the debug command
+    events               
+    hcp                  
+    kv                   Interact with Vault's Key-Value storage
+    lease                Interact with leases
+    monitor              Stream log messages from a Vault server
+    namespace            Interact with namespaces
+    operator             Perform operator-specific tasks
+    patch                Patch data, configuration, and secrets
+    path-help            Retrieve API help for paths
+    pki                  Interact with Vault's PKI Secrets Engine
+    plugin               Interact with Vault plugins and catalog
+    policy               Interact with policies
+    print                Prints runtime configurations
+    proxy                Start a Vault Proxy
+    secrets              Interact with secrets engines
+    ssh                  Initiate an SSH session
+    token                Interact with tokens
+    transform            Interact with Vault's Transform Secrets Engine
+    transit              Interact with Vault's Transit Secrets Engine
+    version-history      Prints the version history of the target Vault server
+---
+Usage: vault <command> [args]
+
+Common commands:
+    read        Read data and retrieves secrets
+    write       Write data, configuration, and secrets
+    delete      Delete secrets and configuration
+    list        List data or secrets
+    login       Authenticate locally
+    agent       Start a Vault agent
+    server      Start a Vault server
+    status      Print seal and HA status
+    unwrap      Unwrap a wrapped secret
+
+Other commands:
+    audit                Interact with audit devices
+    auth                 Interact with auth methods
+    debug                Runs the debug command
+    events               
+    hcp                  
+    kv                   Interact with Vault's Key-Value storage
+    lease                Interact with leases
+    monitor              Stream log messages from a Vault server
+    namespace            Interact with namespaces
+    operator             Perform operator-specific tasks
+    patch                Patch data, configuration, and secrets
+    path-help            Retrieve API help for paths
+    pki                  Interact with Vault's PKI Secrets Engine
+    plugin               Interact with Vault plugins and catalog
+    policy               Interact with policies
+    print                Prints runtime configurations
+    proxy                Start a Vault Proxy
+    secrets              Interact with secrets engines
+    ssh                  Initiate an SSH session
+    token                Interact with tokens
+    transform            Interact with Vault's Transform Secrets Engine
+    transit              Interact with Vault's Transit Secrets Engine
+    version-history      Prints the version history of the target Vault server
+---
+Usage: vault <command> [args]
+
+Common commands:
+    read        Read data and retrieves secrets
+    write       Write data, configuration, and secrets
+    delete      Delete secrets and configuration
+    list        List data or secrets
+    login       Authenticate locally
+    agent       Start a Vault agent
+    server      Start a Vault server
+    status      Print seal and HA status
+    unwrap      Unwrap a wrapped secret
+
+Other commands:
+    audit                Interact with audit devices
+    auth                 Interact with auth methods
+    debug                Runs the debug command
+    events               
+    hcp                  
+    kv                   Interact with Vault's Key-Value storage
+    lease                Interact with leases
+    monitor              Stream log messages from a Vault server
+    namespace            Interact with namespaces
+    operator             Perform operator-specific tasks
+    patch                Patch data, configuration, and secrets
+    path-help            Retrieve API help for paths
+    pki                  Interact with Vault's PKI Secrets Engine
+    plugin               Interact with Vault plugins and catalog
+    policy               Interact with policies
+    print                Prints runtime configurations
+    proxy                Start a Vault Proxy
+    secrets              Interact with secrets engines
+    ssh                  Initiate an SSH session
+    token                Interact with tokens
+    transform            Interact with Vault's Transform Secrets Engine
+    transit              Interact with Vault's Transit Secrets Engine
+    version-history      Prints the version history of the target Vault server
+---
+
+
+=== TRAEFIK YAML VALIDATION ===
+/Users/mlautenschlager/cloudya/vault/infrastructure/traefik/config/traefik.yml
+  5:1       warning  missing document start "---"  (document-start)
+  19:1      error    trailing spaces  (trailing-spaces)
+  29:1      error    trailing spaces  (trailing-spaces)
+  38:1      error    trailing spaces  (trailing-spaces)
+  122:19    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/traefik/config/dynamic/middlewares.yml
+  4:1       warning  missing document start "---"  (document-start)
+  13:1      error    trailing spaces  (trailing-spaces)
+  19:1      error    trailing spaces  (trailing-spaces)
+  36:1      error    trailing spaces  (trailing-spaces)
+  49:1      error    trailing spaces  (trailing-spaces)
+  72:1      error    trailing spaces  (trailing-spaces)
+  82:1      error    trailing spaces  (trailing-spaces)
+  92:1      error    trailing spaces  (trailing-spaces)
+  98:1      error    trailing spaces  (trailing-spaces)
+  105:1     error    trailing spaces  (trailing-spaces)
+  114:1     error    trailing spaces  (trailing-spaces)
+  122:1     error    trailing spaces  (trailing-spaces)
+  130:1     error    trailing spaces  (trailing-spaces)
+  136:1     error    trailing spaces  (trailing-spaces)
+  145:25    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/traefik/config/dynamic/routers.yml
+  4:1       warning  missing document start "---"  (document-start)
+  16:1      error    trailing spaces  (trailing-spaces)
+  26:1      error    trailing spaces  (trailing-spaces)
+  36:1      error    trailing spaces  (trailing-spaces)
+  46:1      error    trailing spaces  (trailing-spaces)
+  55:1      error    trailing spaces  (trailing-spaces)
+  65:1      error    trailing spaces  (trailing-spaces)
+  74:1      error    trailing spaces  (trailing-spaces)
+  83:1      error    trailing spaces  (trailing-spaces)
+  94:1      error    trailing spaces  (trailing-spaces)
+  104:1     error    trailing spaces  (trailing-spaces)
+  123:1     error    trailing spaces  (trailing-spaces)
+  132:1     error    trailing spaces  (trailing-spaces)
+  142:1     error    trailing spaces  (trailing-spaces)
+  150:34    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/traefik/config/dynamic/services.yml
+  4:1       warning  missing document start "---"  (document-start)
+  15:1      error    trailing spaces  (trailing-spaces)
+  25:1      error    trailing spaces  (trailing-spaces)
+  35:1      error    trailing spaces  (trailing-spaces)
+  45:1      error    trailing spaces  (trailing-spaces)
+  55:1      error    trailing spaces  (trailing-spaces)
+  65:1      error    trailing spaces  (trailing-spaces)
+  80:1      error    trailing spaces  (trailing-spaces)
+  89:22     error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/traefik/config/traefik.vault.yml
+  5:1       warning  missing document start "---"  (document-start)
+  20:1      error    trailing spaces  (trailing-spaces)
+  31:1      error    trailing spaces  (trailing-spaces)
+  40:1      error    trailing spaces  (trailing-spaces)
+  50:1      error    trailing spaces  (trailing-spaces)
+  74:1      error    trailing spaces  (trailing-spaces)
+  165:24    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+
+
+=== GITHUB WORKFLOW VALIDATION ===
+/Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/.github/workflows/deploy-traefik.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  14:1      error    trailing spaces  (trailing-spaces)
+  39:1      error    trailing spaces  (trailing-spaces)
+  43:1      error    trailing spaces  (trailing-spaces)
+  48:1      error    trailing spaces  (trailing-spaces)
+  53:1      error    trailing spaces  (trailing-spaces)
+  58:81     error    line too long (93 > 80 characters)  (line-length)
+  59:1      error    trailing spaces  (trailing-spaces)
+  64:81     error    line too long (86 > 80 characters)  (line-length)
+  65:1      error    trailing spaces  (trailing-spaces)
+  70:1      error    trailing spaces  (trailing-spaces)
+  78:1      error    trailing spaces  (trailing-spaces)
+  88:1      error    trailing spaces  (trailing-spaces)
+  93:1      error    syntax error: could not find expected ':' (syntax)
+  100:1     error    trailing spaces  (trailing-spaces)
+  103:1     error    trailing spaces  (trailing-spaces)
+  111:1     error    trailing spaces  (trailing-spaces)
+  115:1     error    trailing spaces  (trailing-spaces)
+  125:1     error    trailing spaces  (trailing-spaces)
+  132:1     error    trailing spaces  (trailing-spaces)
+  135:1     error    trailing spaces  (trailing-spaces)
+  138:1     error    trailing spaces  (trailing-spaces)
+  141:1     error    trailing spaces  (trailing-spaces)
+  148:1     error    trailing spaces  (trailing-spaces)
+  151:1     error    trailing spaces  (trailing-spaces)
+  153:81    error    line too long (92 > 80 characters)  (line-length)
+  154:1     error    trailing spaces  (trailing-spaces)
+  164:1     error    trailing spaces  (trailing-spaces)
+  178:1     error    trailing spaces  (trailing-spaces)
+  181:81    error    line too long (82 > 80 characters)  (line-length)
+  184:1     error    trailing spaces  (trailing-spaces)
+  188:1     error    trailing spaces  (trailing-spaces)
+  198:1     error    trailing spaces  (trailing-spaces)
+  200:1     error    trailing spaces  (trailing-spaces)
+  203:1     error    trailing spaces  (trailing-spaces)
+  204:81    error    line too long (117 > 80 characters)  (line-length)
+  205:1     error    trailing spaces  (trailing-spaces)
+  207:81    error    line too long (85 > 80 characters)  (line-length)
+  208:1     error    trailing spaces  (trailing-spaces)
+  221:1     error    trailing spaces  (trailing-spaces)
+  226:1     error    trailing spaces  (trailing-spaces)
+  229:1     error    trailing spaces  (trailing-spaces)
+  237:1     error    trailing spaces  (trailing-spaces)
+  242:1     error    trailing spaces  (trailing-spaces)
+  246:1     error    trailing spaces  (trailing-spaces)
+  257:1     error    trailing spaces  (trailing-spaces)
+  264:81    error    line too long (83 > 80 characters)  (line-length)
+  281:81    error    line too long (88 > 80 characters)  (line-length)
+  281:89    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/.github/workflows/deploy.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  13:1      error    trailing spaces  (trailing-spaces)
+  42:1      error    trailing spaces  (trailing-spaces)
+  46:1      error    trailing spaces  (trailing-spaces)
+  51:81     error    line too long (87 > 80 characters)  (line-length)
+  57:81     error    line too long (87 > 80 characters)  (line-length)
+  58:1      error    trailing spaces  (trailing-spaces)
+  63:1      error    trailing spaces  (trailing-spaces)
+  65:81     error    line too long (92 > 80 characters)  (line-length)
+  68:81     error    line too long (112 > 80 characters)  (line-length)
+  72:1      error    trailing spaces  (trailing-spaces)
+  77:1      error    trailing spaces  (trailing-spaces)
+  81:1      error    trailing spaces  (trailing-spaces)
+  93:1      error    trailing spaces  (trailing-spaces)
+  98:1      error    syntax error: could not find expected ':' (syntax)
+  109:1     error    trailing spaces  (trailing-spaces)
+  118:1     error    trailing spaces  (trailing-spaces)
+  122:1     error    trailing spaces  (trailing-spaces)
+  126:1     error    trailing spaces  (trailing-spaces)
+  129:1     error    trailing spaces  (trailing-spaces)
+  132:1     error    trailing spaces  (trailing-spaces)
+  136:81    error    line too long (96 > 80 characters)  (line-length)
+  139:1     error    trailing spaces  (trailing-spaces)
+  143:1     error    trailing spaces  (trailing-spaces)
+  145:81    error    line too long (92 > 80 characters)  (line-length)
+  149:81    error    line too long (112 > 80 characters)  (line-length)
+  155:1     error    trailing spaces  (trailing-spaces)
+  160:1     error    trailing spaces  (trailing-spaces)
+  167:1     error    trailing spaces  (trailing-spaces)
+  171:1     error    trailing spaces  (trailing-spaces)
+  174:1     error    trailing spaces  (trailing-spaces)
+  181:1     error    trailing spaces  (trailing-spaces)
+  186:1     error    trailing spaces  (trailing-spaces)
+  190:81    error    line too long (112 > 80 characters)  (line-length)
+  193:1     error    trailing spaces  (trailing-spaces)
+  201:1     error    trailing spaces  (trailing-spaces)
+  203:81    error    line too long (95 > 80 characters)  (line-length)
+  209:1     error    trailing spaces  (trailing-spaces)
+  216:1     error    trailing spaces  (trailing-spaces)
+  220:1     error    trailing spaces  (trailing-spaces)
+  223:81    error    line too long (92 > 80 characters)  (line-length)
+  226:1     error    trailing spaces  (trailing-spaces)
+  230:81    error    line too long (112 > 80 characters)  (line-length)
+  234:1     error    trailing spaces  (trailing-spaces)
+  237:1     error    trailing spaces  (trailing-spaces)
+  243:1     error    trailing spaces  (trailing-spaces)
+  245:81    error    line too long (130 > 80 characters)  (line-length)
+  246:1     error    trailing spaces  (trailing-spaces)
+  249:81    error    line too long (83 > 80 characters)  (line-length)
+  250:1     error    trailing spaces  (trailing-spaces)
+  256:1     error    trailing spaces  (trailing-spaces)
+  263:1     error    trailing spaces  (trailing-spaces)
+  268:1     error    trailing spaces  (trailing-spaces)
+  270:81    error    line too long (98 > 80 characters)  (line-length)
+  272:1     error    trailing spaces  (trailing-spaces)
+  274:81    error    line too long (88 > 80 characters)  (line-length)
+  276:1     error    trailing spaces  (trailing-spaces)
+  281:1     error    trailing spaces  (trailing-spaces)
+  287:1     error    trailing spaces  (trailing-spaces)
+  295:81    error    line too long (86 > 80 characters)  (line-length)
+  300:1     error    trailing spaces  (trailing-spaces)
+  306:1     error    trailing spaces  (trailing-spaces)
+  310:1     error    trailing spaces  (trailing-spaces)
+  314:81    error    line too long (112 > 80 characters)  (line-length)
+  328:81    error    line too long (92 > 80 characters)  (line-length)
+  331:40    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/repositories/traefik/.github/workflows/deploy.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  13:1      error    trailing spaces  (trailing-spaces)
+  42:1      error    trailing spaces  (trailing-spaces)
+  46:1      error    trailing spaces  (trailing-spaces)
+  51:81     error    line too long (87 > 80 characters)  (line-length)
+  57:81     error    line too long (87 > 80 characters)  (line-length)
+  58:1      error    trailing spaces  (trailing-spaces)
+  60:81     error    line too long (92 > 80 characters)  (line-length)
+  66:1      error    trailing spaces  (trailing-spaces)
+  69:1      error    trailing spaces  (trailing-spaces)
+  71:81     error    line too long (104 > 80 characters)  (line-length)
+  74:1      error    trailing spaces  (trailing-spaces)
+  76:81     error    line too long (102 > 80 characters)  (line-length)
+  79:1      error    trailing spaces  (trailing-spaces)
+  84:1      error    trailing spaces  (trailing-spaces)
+  88:1      error    trailing spaces  (trailing-spaces)
+  94:1      error    trailing spaces  (trailing-spaces)
+  97:81     error    line too long (99 > 80 characters)  (line-length)
+  98:81     error    line too long (122 > 80 characters)  (line-length)
+  99:1      error    trailing spaces  (trailing-spaces)
+  108:1     error    trailing spaces  (trailing-spaces)
+  110:81    error    line too long (83 > 80 characters)  (line-length)
+  118:81    error    line too long (97 > 80 characters)  (line-length)
+  121:1     error    trailing spaces  (trailing-spaces)
+  127:1     error    trailing spaces  (trailing-spaces)
+  134:1     error    trailing spaces  (trailing-spaces)
+  136:1     error    trailing spaces  (trailing-spaces)
+  139:1     error    trailing spaces  (trailing-spaces)
+  146:1     error    trailing spaces  (trailing-spaces)
+  149:1     error    trailing spaces  (trailing-spaces)
+  151:1     error    trailing spaces  (trailing-spaces)
+  156:1     error    trailing spaces  (trailing-spaces)
+  160:1     error    trailing spaces  (trailing-spaces)
+  163:81    error    line too long (93 > 80 characters)  (line-length)
+  164:1     error    trailing spaces  (trailing-spaces)
+  171:1     error    trailing spaces  (trailing-spaces)
+  173:81    error    line too long (92 > 80 characters)  (line-length)
+  177:81    error    line too long (112 > 80 characters)  (line-length)
+  183:1     error    trailing spaces  (trailing-spaces)
+  188:1     error    trailing spaces  (trailing-spaces)
+  195:1     error    trailing spaces  (trailing-spaces)
+  199:1     error    trailing spaces  (trailing-spaces)
+  202:1     error    trailing spaces  (trailing-spaces)
+  209:1     error    trailing spaces  (trailing-spaces)
+  214:1     error    trailing spaces  (trailing-spaces)
+  218:81    error    line too long (112 > 80 characters)  (line-length)
+  221:1     error    trailing spaces  (trailing-spaces)
+  229:1     error    trailing spaces  (trailing-spaces)
+  231:81    error    line too long (95 > 80 characters)  (line-length)
+  237:1     error    trailing spaces  (trailing-spaces)
+  244:1     error    trailing spaces  (trailing-spaces)
+  248:1     error    trailing spaces  (trailing-spaces)
+  251:81    error    line too long (92 > 80 characters)  (line-length)
+  254:1     error    trailing spaces  (trailing-spaces)
+  258:81    error    line too long (112 > 80 characters)  (line-length)
+  262:1     error    trailing spaces  (trailing-spaces)
+  265:1     error    trailing spaces  (trailing-spaces)
+  271:1     error    trailing spaces  (trailing-spaces)
+  273:81    error    line too long (130 > 80 characters)  (line-length)
+  274:1     error    trailing spaces  (trailing-spaces)
+  277:81    error    line too long (83 > 80 characters)  (line-length)
+  278:1     error    trailing spaces  (trailing-spaces)
+  284:1     error    trailing spaces  (trailing-spaces)
+  291:1     error    trailing spaces  (trailing-spaces)
+  296:1     error    trailing spaces  (trailing-spaces)
+  298:81    error    line too long (98 > 80 characters)  (line-length)
+  300:1     error    trailing spaces  (trailing-spaces)
+  302:81    error    line too long (88 > 80 characters)  (line-length)
+  304:1     error    trailing spaces  (trailing-spaces)
+  309:1     error    trailing spaces  (trailing-spaces)
+  315:1     error    trailing spaces  (trailing-spaces)
+  323:81    error    line too long (86 > 80 characters)  (line-length)
+  328:1     error    trailing spaces  (trailing-spaces)
+  334:1     error    trailing spaces  (trailing-spaces)
+  338:1     error    trailing spaces  (trailing-spaces)
+  342:81    error    line too long (112 > 80 characters)  (line-length)
+  356:81    error    line too long (92 > 80 characters)  (line-length)
+  359:40    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/repositories/vault/.github/workflows/deploy.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  16:1      error    trailing spaces  (trailing-spaces)
+  63:1      error    trailing spaces  (trailing-spaces)
+  80:1      error    trailing spaces  (trailing-spaces)
+  88:1      error    trailing spaces  (trailing-spaces)
+  93:1      error    trailing spaces  (trailing-spaces)
+  100:1     error    trailing spaces  (trailing-spaces)
+  103:81    error    line too long (126 > 80 characters)  (line-length)
+  104:1     error    trailing spaces  (trailing-spaces)
+  109:1     error    trailing spaces  (trailing-spaces)
+  113:81    error    line too long (106 > 80 characters)  (line-length)
+  119:81    error    line too long (86 > 80 characters)  (line-length)
+  125:1     error    trailing spaces  (trailing-spaces)
+  126:81    error    line too long (96 > 80 characters)  (line-length)
+  127:81    error    line too long (108 > 80 characters)  (line-length)
+  128:1     error    trailing spaces  (trailing-spaces)
+  132:1     error    trailing spaces  (trailing-spaces)
+  136:1     error    trailing spaces  (trailing-spaces)
+  142:81    error    line too long (87 > 80 characters)  (line-length)
+  149:81    error    line too long (115 > 80 characters)  (line-length)
+  156:1     error    trailing spaces  (trailing-spaces)
+  161:1     error    trailing spaces  (trailing-spaces)
+  166:1     error    trailing spaces  (trailing-spaces)
+  169:81    error    line too long (99 > 80 characters)  (line-length)
+  173:1     error    trailing spaces  (trailing-spaces)
+  180:1     error    trailing spaces  (trailing-spaces)
+  183:81    error    line too long (86 > 80 characters)  (line-length)
+  190:1     error    trailing spaces  (trailing-spaces)
+  199:1     error    trailing spaces  (trailing-spaces)
+  200:81    error    line too long (129 > 80 characters)  (line-length)
+  201:1     error    trailing spaces  (trailing-spaces)
+  204:81    error    line too long (134 > 80 characters)  (line-length)
+  207:81    error    line too long (90 > 80 characters)  (line-length)
+  209:81    error    line too long (86 > 80 characters)  (line-length)
+  211:1     error    trailing spaces  (trailing-spaces)
+  214:1     error    trailing spaces  (trailing-spaces)
+  221:1     error    trailing spaces  (trailing-spaces)
+  224:81    error    line too long (89 > 80 characters)  (line-length)
+  225:81    error    line too long (91 > 80 characters)  (line-length)
+  226:1     error    trailing spaces  (trailing-spaces)
+  231:81    error    line too long (167 > 80 characters)  (line-length)
+  232:1     error    trailing spaces  (trailing-spaces)
+  237:81    error    line too long (120 > 80 characters)  (line-length)
+  238:1     error    trailing spaces  (trailing-spaces)
+  240:81    error    line too long (91 > 80 characters)  (line-length)
+  241:1     error    trailing spaces  (trailing-spaces)
+  243:81    error    line too long (99 > 80 characters)  (line-length)
+  246:81    error    line too long (84 > 80 characters)  (line-length)
+  253:1     error    trailing spaces  (trailing-spaces)
+  256:1     error    trailing spaces  (trailing-spaces)
+  263:81    error    line too long (96 > 80 characters)  (line-length)
+  268:1     error    trailing spaces  (trailing-spaces)
+  270:1     error    trailing spaces  (trailing-spaces)
+  276:1     error    trailing spaces  (trailing-spaces)
+  278:81    error    line too long (117 > 80 characters)  (line-length)
+  279:1     error    trailing spaces  (trailing-spaces)
+  285:81    error    line too long (106 > 80 characters)  (line-length)
+  286:1     error    trailing spaces  (trailing-spaces)
+  288:81    error    line too long (135 > 80 characters)  (line-length)
+  289:81    error    line too long (123 > 80 characters)  (line-length)
+  290:1     error    trailing spaces  (trailing-spaces)
+  292:81    error    line too long (112 > 80 characters)  (line-length)
+  293:81    error    line too long (83 > 80 characters)  (line-length)
+  295:1     error    trailing spaces  (trailing-spaces)
+  302:81    error    line too long (96 > 80 characters)  (line-length)
+  307:1     error    trailing spaces  (trailing-spaces)
+  309:1     error    trailing spaces  (trailing-spaces)
+  311:81    error    line too long (107 > 80 characters)  (line-length)
+  315:1     error    trailing spaces  (trailing-spaces)
+  321:1     error    trailing spaces  (trailing-spaces)
+  325:81    error    line too long (137 > 80 characters)  (line-length)
+  328:1     error    trailing spaces  (trailing-spaces)
+  332:1     error    trailing spaces  (trailing-spaces)
+  337:81    error    line too long (167 > 80 characters)  (line-length)
+  339:1     error    trailing spaces  (trailing-spaces)
+  346:81    error    line too long (96 > 80 characters)  (line-length)
+  351:1     error    trailing spaces  (trailing-spaces)
+  353:1     error    trailing spaces  (trailing-spaces)
+  357:1     error    trailing spaces  (trailing-spaces)
+  363:1     error    trailing spaces  (trailing-spaces)
+  368:1     error    trailing spaces  (trailing-spaces)
+  374:1     error    trailing spaces  (trailing-spaces)
+  376:81    error    line too long (117 > 80 characters)  (line-length)
+  377:1     error    trailing spaces  (trailing-spaces)
+  381:1     error    trailing spaces  (trailing-spaces)
+  384:81    error    line too long (104 > 80 characters)  (line-length)
+  385:1     error    trailing spaces  (trailing-spaces)
+  389:1     error    trailing spaces  (trailing-spaces)
+  391:81    error    line too long (105 > 80 characters)  (line-length)
+  392:81    error    line too long (172 > 80 characters)  (line-length)
+  393:81    error    line too long (113 > 80 characters)  (line-length)
+  394:81    error    line too long (101 > 80 characters)  (line-length)
+  396:1     error    trailing spaces  (trailing-spaces)
+  400:1     error    trailing spaces  (trailing-spaces)
+  411:81    error    line too long (81 > 80 characters)  (line-length)
+  414:1     error    trailing spaces  (trailing-spaces)
+  419:1     error    trailing spaces  (trailing-spaces)
+  425:1     error    trailing spaces  (trailing-spaces)
+  431:1     error    trailing spaces  (trailing-spaces)
+  434:1     error    trailing spaces  (trailing-spaces)
+  447:1     error    trailing spaces  (trailing-spaces)
+  453:1     error    trailing spaces  (trailing-spaces)
+  456:81    error    line too long (98 > 80 characters)  (line-length)
+  461:1     error    trailing spaces  (trailing-spaces)
+  463:1     error    trailing spaces  (trailing-spaces)
+  472:1     error    trailing spaces  (trailing-spaces)
+  475:81    error    line too long (98 > 80 characters)  (line-length)
+  477:1     error    trailing spaces  (trailing-spaces)
+  480:1     error    trailing spaces  (trailing-spaces)
+  483:1     error    trailing spaces  (trailing-spaces)
+  486:1     error    trailing spaces  (trailing-spaces)
+  489:1     error    trailing spaces  (trailing-spaces)
+  492:1     error    trailing spaces  (trailing-spaces)
+  495:1     error    trailing spaces  (trailing-spaces)
+  501:81    error    line too long (118 > 80 characters)  (line-length)
+  504:1     error    trailing spaces  (trailing-spaces)
+  509:81    error    line too long (97 > 80 characters)  (line-length)
+  510:1     error    trailing spaces  (trailing-spaces)
+  516:1     error    trailing spaces  (trailing-spaces)
+  521:1     error    trailing spaces  (trailing-spaces)
+  527:81    error    line too long (84 > 80 characters)  (line-length)
+  530:81    error    line too long (94 > 80 characters)  (line-length)
+  531:81    error    line too long (96 > 80 characters)  (line-length)
+  536:1     error    trailing spaces  (trailing-spaces)
+  541:13    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/repositories/vault/traefik/.github/workflows/deploy.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  13:1      error    trailing spaces  (trailing-spaces)
+  42:1      error    trailing spaces  (trailing-spaces)
+  46:1      error    trailing spaces  (trailing-spaces)
+  51:81     error    line too long (87 > 80 characters)  (line-length)
+  57:81     error    line too long (87 > 80 characters)  (line-length)
+  58:1      error    trailing spaces  (trailing-spaces)
+  63:1      error    trailing spaces  (trailing-spaces)
+  65:81     error    line too long (92 > 80 characters)  (line-length)
+  68:81     error    line too long (112 > 80 characters)  (line-length)
+  72:1      error    trailing spaces  (trailing-spaces)
+  77:1      error    trailing spaces  (trailing-spaces)
+  81:1      error    trailing spaces  (trailing-spaces)
+  93:1      error    trailing spaces  (trailing-spaces)
+  98:1      error    syntax error: could not find expected ':' (syntax)
+  109:1     error    trailing spaces  (trailing-spaces)
+  118:1     error    trailing spaces  (trailing-spaces)
+  122:1     error    trailing spaces  (trailing-spaces)
+  126:1     error    trailing spaces  (trailing-spaces)
+  129:1     error    trailing spaces  (trailing-spaces)
+  132:1     error    trailing spaces  (trailing-spaces)
+  136:81    error    line too long (96 > 80 characters)  (line-length)
+  139:1     error    trailing spaces  (trailing-spaces)
+  143:1     error    trailing spaces  (trailing-spaces)
+  145:81    error    line too long (92 > 80 characters)  (line-length)
+  149:81    error    line too long (112 > 80 characters)  (line-length)
+  155:1     error    trailing spaces  (trailing-spaces)
+  160:1     error    trailing spaces  (trailing-spaces)
+  167:1     error    trailing spaces  (trailing-spaces)
+  171:1     error    trailing spaces  (trailing-spaces)
+  174:1     error    trailing spaces  (trailing-spaces)
+  181:1     error    trailing spaces  (trailing-spaces)
+  186:1     error    trailing spaces  (trailing-spaces)
+  190:81    error    line too long (112 > 80 characters)  (line-length)
+  193:1     error    trailing spaces  (trailing-spaces)
+  201:1     error    trailing spaces  (trailing-spaces)
+  203:81    error    line too long (95 > 80 characters)  (line-length)
+  209:1     error    trailing spaces  (trailing-spaces)
+  216:1     error    trailing spaces  (trailing-spaces)
+  220:1     error    trailing spaces  (trailing-spaces)
+  223:81    error    line too long (92 > 80 characters)  (line-length)
+  226:1     error    trailing spaces  (trailing-spaces)
+  230:81    error    line too long (112 > 80 characters)  (line-length)
+  234:1     error    trailing spaces  (trailing-spaces)
+  237:1     error    trailing spaces  (trailing-spaces)
+  243:1     error    trailing spaces  (trailing-spaces)
+  245:81    error    line too long (130 > 80 characters)  (line-length)
+  246:1     error    trailing spaces  (trailing-spaces)
+  249:81    error    line too long (83 > 80 characters)  (line-length)
+  250:1     error    trailing spaces  (trailing-spaces)
+  256:1     error    trailing spaces  (trailing-spaces)
+  263:1     error    trailing spaces  (trailing-spaces)
+  268:1     error    trailing spaces  (trailing-spaces)
+  270:81    error    line too long (98 > 80 characters)  (line-length)
+  272:1     error    trailing spaces  (trailing-spaces)
+  274:81    error    line too long (88 > 80 characters)  (line-length)
+  276:1     error    trailing spaces  (trailing-spaces)
+  281:1     error    trailing spaces  (trailing-spaces)
+  287:1     error    trailing spaces  (trailing-spaces)
+  295:81    error    line too long (86 > 80 characters)  (line-length)
+  300:1     error    trailing spaces  (trailing-spaces)
+  306:1     error    trailing spaces  (trailing-spaces)
+  310:1     error    trailing spaces  (trailing-spaces)
+  314:81    error    line too long (112 > 80 characters)  (line-length)
+  328:81    error    line too long (92 > 80 characters)  (line-length)
+  331:40    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/nomad/.github/workflows/deploy-traefik.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  14:1      error    trailing spaces  (trailing-spaces)
+  39:1      error    trailing spaces  (trailing-spaces)
+  43:1      error    trailing spaces  (trailing-spaces)
+  48:1      error    trailing spaces  (trailing-spaces)
+  53:1      error    trailing spaces  (trailing-spaces)
+  58:81     error    line too long (93 > 80 characters)  (line-length)
+  59:1      error    trailing spaces  (trailing-spaces)
+  64:81     error    line too long (86 > 80 characters)  (line-length)
+  65:1      error    trailing spaces  (trailing-spaces)
+  70:1      error    trailing spaces  (trailing-spaces)
+  78:1      error    trailing spaces  (trailing-spaces)
+  88:1      error    trailing spaces  (trailing-spaces)
+  93:1      error    syntax error: could not find expected ':' (syntax)
+  100:1     error    trailing spaces  (trailing-spaces)
+  103:1     error    trailing spaces  (trailing-spaces)
+  111:1     error    trailing spaces  (trailing-spaces)
+  115:1     error    trailing spaces  (trailing-spaces)
+  125:1     error    trailing spaces  (trailing-spaces)
+  132:1     error    trailing spaces  (trailing-spaces)
+  135:1     error    trailing spaces  (trailing-spaces)
+  138:1     error    trailing spaces  (trailing-spaces)
+  141:1     error    trailing spaces  (trailing-spaces)
+  148:1     error    trailing spaces  (trailing-spaces)
+  151:1     error    trailing spaces  (trailing-spaces)
+  153:81    error    line too long (92 > 80 characters)  (line-length)
+  154:1     error    trailing spaces  (trailing-spaces)
+  164:1     error    trailing spaces  (trailing-spaces)
+  178:1     error    trailing spaces  (trailing-spaces)
+  181:81    error    line too long (82 > 80 characters)  (line-length)
+  184:1     error    trailing spaces  (trailing-spaces)
+  188:1     error    trailing spaces  (trailing-spaces)
+  198:1     error    trailing spaces  (trailing-spaces)
+  200:1     error    trailing spaces  (trailing-spaces)
+  203:1     error    trailing spaces  (trailing-spaces)
+  204:81    error    line too long (117 > 80 characters)  (line-length)
+  205:1     error    trailing spaces  (trailing-spaces)
+  207:81    error    line too long (85 > 80 characters)  (line-length)
+  208:1     error    trailing spaces  (trailing-spaces)
+  221:1     error    trailing spaces  (trailing-spaces)
+  226:1     error    trailing spaces  (trailing-spaces)
+  229:1     error    trailing spaces  (trailing-spaces)
+  237:1     error    trailing spaces  (trailing-spaces)
+  242:1     error    trailing spaces  (trailing-spaces)
+  246:1     error    trailing spaces  (trailing-spaces)
+  257:1     error    trailing spaces  (trailing-spaces)
+  264:81    error    line too long (83 > 80 characters)  (line-length)
+  281:81    error    line too long (88 > 80 characters)  (line-length)
+  281:89    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/nomad/traefik/.github/workflows/deploy.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  13:1      error    trailing spaces  (trailing-spaces)
+  42:1      error    trailing spaces  (trailing-spaces)
+  46:1      error    trailing spaces  (trailing-spaces)
+  51:81     error    line too long (87 > 80 characters)  (line-length)
+  57:81     error    line too long (87 > 80 characters)  (line-length)
+  58:1      error    trailing spaces  (trailing-spaces)
+  63:1      error    trailing spaces  (trailing-spaces)
+  65:81     error    line too long (92 > 80 characters)  (line-length)
+  68:81     error    line too long (112 > 80 characters)  (line-length)
+  72:1      error    trailing spaces  (trailing-spaces)
+  77:1      error    trailing spaces  (trailing-spaces)
+  81:1      error    trailing spaces  (trailing-spaces)
+  93:1      error    trailing spaces  (trailing-spaces)
+  98:1      error    syntax error: could not find expected ':' (syntax)
+  109:1     error    trailing spaces  (trailing-spaces)
+  118:1     error    trailing spaces  (trailing-spaces)
+  122:1     error    trailing spaces  (trailing-spaces)
+  126:1     error    trailing spaces  (trailing-spaces)
+  129:1     error    trailing spaces  (trailing-spaces)
+  132:1     error    trailing spaces  (trailing-spaces)
+  136:81    error    line too long (96 > 80 characters)  (line-length)
+  139:1     error    trailing spaces  (trailing-spaces)
+  143:1     error    trailing spaces  (trailing-spaces)
+  145:81    error    line too long (92 > 80 characters)  (line-length)
+  149:81    error    line too long (112 > 80 characters)  (line-length)
+  155:1     error    trailing spaces  (trailing-spaces)
+  160:1     error    trailing spaces  (trailing-spaces)
+  167:1     error    trailing spaces  (trailing-spaces)
+  171:1     error    trailing spaces  (trailing-spaces)
+  174:1     error    trailing spaces  (trailing-spaces)
+  181:1     error    trailing spaces  (trailing-spaces)
+  186:1     error    trailing spaces  (trailing-spaces)
+  190:81    error    line too long (112 > 80 characters)  (line-length)
+  193:1     error    trailing spaces  (trailing-spaces)
+  201:1     error    trailing spaces  (trailing-spaces)
+  203:81    error    line too long (95 > 80 characters)  (line-length)
+  209:1     error    trailing spaces  (trailing-spaces)
+  216:1     error    trailing spaces  (trailing-spaces)
+  220:1     error    trailing spaces  (trailing-spaces)
+  223:81    error    line too long (92 > 80 characters)  (line-length)
+  226:1     error    trailing spaces  (trailing-spaces)
+  230:81    error    line too long (112 > 80 characters)  (line-length)
+  234:1     error    trailing spaces  (trailing-spaces)
+  237:1     error    trailing spaces  (trailing-spaces)
+  243:1     error    trailing spaces  (trailing-spaces)
+  245:81    error    line too long (130 > 80 characters)  (line-length)
+  246:1     error    trailing spaces  (trailing-spaces)
+  249:81    error    line too long (83 > 80 characters)  (line-length)
+  250:1     error    trailing spaces  (trailing-spaces)
+  256:1     error    trailing spaces  (trailing-spaces)
+  263:1     error    trailing spaces  (trailing-spaces)
+  268:1     error    trailing spaces  (trailing-spaces)
+  270:81    error    line too long (98 > 80 characters)  (line-length)
+  272:1     error    trailing spaces  (trailing-spaces)
+  274:81    error    line too long (88 > 80 characters)  (line-length)
+  276:1     error    trailing spaces  (trailing-spaces)
+  281:1     error    trailing spaces  (trailing-spaces)
+  287:1     error    trailing spaces  (trailing-spaces)
+  295:81    error    line too long (86 > 80 characters)  (line-length)
+  300:1     error    trailing spaces  (trailing-spaces)
+  306:1     error    trailing spaces  (trailing-spaces)
+  310:1     error    trailing spaces  (trailing-spaces)
+  314:81    error    line too long (112 > 80 characters)  (line-length)
+  328:81    error    line too long (92 > 80 characters)  (line-length)
+  331:40    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/.github/workflows/deploy-infrastructure.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  42:81     error    line too long (91 > 80 characters)  (line-length)
+  89:1      error    trailing spaces  (trailing-spaces)
+  91:1      error    trailing spaces  (trailing-spaces)
+  107:1     error    trailing spaces  (trailing-spaces)
+  118:1     error    trailing spaces  (trailing-spaces)
+  127:1     error    trailing spaces  (trailing-spaces)
+  143:1     error    trailing spaces  (trailing-spaces)
+  150:1     error    trailing spaces  (trailing-spaces)
+  155:81    error    line too long (103 > 80 characters)  (line-length)
+  159:1     error    trailing spaces  (trailing-spaces)
+  175:81    error    line too long (109 > 80 characters)  (line-length)
+  181:1     error    trailing spaces  (trailing-spaces)
+  184:81    error    line too long (133 > 80 characters)  (line-length)
+  188:1     error    trailing spaces  (trailing-spaces)
+  191:81    error    line too long (133 > 80 characters)  (line-length)
+  195:1     error    trailing spaces  (trailing-spaces)
+  198:81    error    line too long (138 > 80 characters)  (line-length)
+  202:1     error    trailing spaces  (trailing-spaces)
+  252:81    error    line too long (87 > 80 characters)  (line-length)
+  253:1     error    trailing spaces  (trailing-spaces)
+  258:1     error    trailing spaces  (trailing-spaces)
+  259:81    error    line too long (88 > 80 characters)  (line-length)
+  262:1     error    trailing spaces  (trailing-spaces)
+  279:1     error    trailing spaces  (trailing-spaces)
+  285:1     error    trailing spaces  (trailing-spaces)
+  291:1     error    trailing spaces  (trailing-spaces)
+  296:1     error    trailing spaces  (trailing-spaces)
+  300:1     error    trailing spaces  (trailing-spaces)
+  305:1     error    trailing spaces  (trailing-spaces)
+  309:1     error    trailing spaces  (trailing-spaces)
+  316:1     error    trailing spaces  (trailing-spaces)
+  324:1     error    trailing spaces  (trailing-spaces)
+  334:81    error    line too long (107 > 80 characters)  (line-length)
+  336:1     error    trailing spaces  (trailing-spaces)
+  343:1     error    trailing spaces  (trailing-spaces)
+  357:1     error    trailing spaces  (trailing-spaces)
+  362:1     error    trailing spaces  (trailing-spaces)
+  367:1     error    trailing spaces  (trailing-spaces)
+  372:1     error    trailing spaces  (trailing-spaces)
+  379:1     error    trailing spaces  (trailing-spaces)
+  382:1     error    trailing spaces  (trailing-spaces)
+  388:1     error    trailing spaces  (trailing-spaces)
+  395:1     error    trailing spaces  (trailing-spaces)
+  398:1     error    trailing spaces  (trailing-spaces)
+  401:1     error    trailing spaces  (trailing-spaces)
+  404:1     error    trailing spaces  (trailing-spaces)
+  435:1     error    trailing spaces  (trailing-spaces)
+  446:1     error    trailing spaces  (trailing-spaces)
+  453:1     error    trailing spaces  (trailing-spaces)
+  457:1     error    trailing spaces  (trailing-spaces)
+  461:1     error    trailing spaces  (trailing-spaces)
+  466:1     error    trailing spaces  (trailing-spaces)
+  471:81    error    line too long (88 > 80 characters)  (line-length)
+  472:81    error    line too long (103 > 80 characters)  (line-length)
+  482:1     error    trailing spaces  (trailing-spaces)
+  484:81    error    line too long (82 > 80 characters)  (line-length)
+  493:81    error    line too long (108 > 80 characters)  (line-length)
+  499:1     error    trailing spaces  (trailing-spaces)
+  511:1     error    trailing spaces  (trailing-spaces)
+  516:1     error    trailing spaces  (trailing-spaces)
+  522:1     error    trailing spaces  (trailing-spaces)
+  526:81    error    line too long (102 > 80 characters)  (line-length)
+  529:81    error    line too long (112 > 80 characters)  (line-length)
+  532:1     error    trailing spaces  (trailing-spaces)
+  534:1     error    trailing spaces  (trailing-spaces)
+  541:81    error    line too long (169 > 80 characters)  (line-length)
+  546:1     error    trailing spaces  (trailing-spaces)
+  551:1     error    trailing spaces  (trailing-spaces)
+  554:1     error    trailing spaces  (trailing-spaces)
+  562:81    error    line too long (108 > 80 characters)  (line-length)
+  568:1     error    trailing spaces  (trailing-spaces)
+  573:1     error    trailing spaces  (trailing-spaces)
+  575:81    error    line too long (99 > 80 characters)  (line-length)
+  576:81    error    line too long (117 > 80 characters)  (line-length)
+  577:81    error    line too long (121 > 80 characters)  (line-length)
+  578:1     error    trailing spaces  (trailing-spaces)
+  591:1     error    trailing spaces  (trailing-spaces)
+  601:1     error    trailing spaces  (trailing-spaces)
+  603:81    error    line too long (120 > 80 characters)  (line-length)
+  604:81    error    line too long (124 > 80 characters)  (line-length)
+  605:1     error    trailing spaces  (trailing-spaces)
+  607:81    error    line too long (89 > 80 characters)  (line-length)
+  608:81    error    line too long (93 > 80 characters)  (line-length)
+  609:1     error    trailing spaces  (trailing-spaces)
+  616:81    error    line too long (108 > 80 characters)  (line-length)
+  620:81    error    line too long (83 > 80 characters)  (line-length)
+  621:1     error    trailing spaces  (trailing-spaces)
+  624:1     error    trailing spaces  (trailing-spaces)
+  626:81    error    line too long (86 > 80 characters)  (line-length)
+  627:81    error    line too long (91 > 80 characters)  (line-length)
+  628:1     error    trailing spaces  (trailing-spaces)
+  629:81    error    line too long (90 > 80 characters)  (line-length)
+  642:1     error    trailing spaces  (trailing-spaces)
+  645:1     error    trailing spaces  (trailing-spaces)
+  648:1     error    trailing spaces  (trailing-spaces)
+  654:1     error    trailing spaces  (trailing-spaces)
+  658:81    error    line too long (108 > 80 characters)  (line-length)
+  661:81    error    line too long (81 > 80 characters)  (line-length)
+  662:81    error    line too long (87 > 80 characters)  (line-length)
+  685:81    error    line too long (81 > 80 characters)  (line-length)
+  686:81    error    line too long (87 > 80 characters)  (line-length)
+  700:1     error    trailing spaces  (trailing-spaces)
+  704:1     error    trailing spaces  (trailing-spaces)
+  707:1     error    trailing spaces  (trailing-spaces)
+  709:81    error    line too long (91 > 80 characters)  (line-length)
+  710:81    error    line too long (102 > 80 characters)  (line-length)
+  716:81    error    line too long (108 > 80 characters)  (line-length)
+  722:1     error    trailing spaces  (trailing-spaces)
+  727:81    error    line too long (95 > 80 characters)  (line-length)
+  728:81    error    line too long (81 > 80 characters)  (line-length)
+  729:81    error    line too long (89 > 80 characters)  (line-length)
+  734:1     error    trailing spaces  (trailing-spaces)
+  738:81    error    line too long (100 > 80 characters)  (line-length)
+  739:1     error    trailing spaces  (trailing-spaces)
+  745:1     error    trailing spaces  (trailing-spaces)
+  750:1     error    trailing spaces  (trailing-spaces)
+  752:81    error    line too long (84 > 80 characters)  (line-length)
+  761:1     error    trailing spaces  (trailing-spaces)
+  765:81    error    line too long (81 > 80 characters)  (line-length)
+  766:81    error    line too long (89 > 80 characters)  (line-length)
+  768:1     error    trailing spaces  (trailing-spaces)
+  775:1     error    trailing spaces  (trailing-spaces)
+  779:1     error    trailing spaces  (trailing-spaces)
+  783:1     error    trailing spaces  (trailing-spaces)
+  788:1     error    trailing spaces  (trailing-spaces)
+  794:81    error    line too long (92 > 80 characters)  (line-length)
+  800:81    error    line too long (81 > 80 characters)  (line-length)
+  804:1     error    trailing spaces  (trailing-spaces)
+  806:81    error    line too long (84 > 80 characters)  (line-length)
+  818:1     error    trailing spaces  (trailing-spaces)
+  821:1     error    trailing spaces  (trailing-spaces)
+  829:81    error    line too long (82 > 80 characters)  (line-length)
+  833:1     error    trailing spaces  (trailing-spaces)
+  840:1     error    trailing spaces  (trailing-spaces)
+  846:81    error    line too long (88 > 80 characters)  (line-length)
+  872:1     error    trailing spaces  (trailing-spaces)
+  878:1     error    trailing spaces  (trailing-spaces)
+  880:81    error    line too long (89 > 80 characters)  (line-length)
+  885:1     error    trailing spaces  (trailing-spaces)
+  887:81    error    line too long (89 > 80 characters)  (line-length)
+  891:81    error    line too long (104 > 80 characters)  (line-length)
+  896:1     error    trailing spaces  (trailing-spaces)
+  898:81    error    line too long (91 > 80 characters)  (line-length)
+  902:1     error    trailing spaces  (trailing-spaces)
+  906:81    error    line too long (121 > 80 characters)  (line-length)
+  918:1     error    trailing spaces  (trailing-spaces)
+  921:81    error    line too long (81 > 80 characters)  (line-length)
+  924:1     error    trailing spaces  (trailing-spaces)
+  931:81    error    line too long (109 > 80 characters)  (line-length)
+  933:81    error    line too long (102 > 80 characters)  (line-length)
+  934:81    error    line too long (102 > 80 characters)  (line-length)
+  935:81    error    line too long (106 > 80 characters)  (line-length)
+  936:81    error    line too long (108 > 80 characters)  (line-length)
+  937:81    error    line too long (99 > 80 characters)  (line-length)
+  938:1     error    trailing spaces  (trailing-spaces)
+  939:81    error    line too long (158 > 80 characters)  (line-length)
+  945:1     error    trailing spaces  (trailing-spaces)
+  947:81    error    line too long (90 > 80 characters)  (line-length)
+  948:81    error    line too long (87 > 80 characters)  (line-length)
+  949:81    error    line too long (89 > 80 characters)  (line-length)
+  950:81    error    line too long (89 > 80 characters)  (line-length)
+  951:81    error    line too long (93 > 80 characters)  (line-length)
+  961:1     error    trailing spaces  (trailing-spaces)
+  962:58    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+/Users/mlautenschlager/cloudya/vault/infrastructure/traefik/.github/workflows/deploy.yml
+  1:1       warning  missing document start "---"  (document-start)
+  3:1       warning  truthy value should be one of [false, true]  (truthy)
+  13:1      error    trailing spaces  (trailing-spaces)
+  42:1      error    trailing spaces  (trailing-spaces)
+  46:1      error    trailing spaces  (trailing-spaces)
+  51:81     error    line too long (87 > 80 characters)  (line-length)
+  57:81     error    line too long (87 > 80 characters)  (line-length)
+  58:1      error    trailing spaces  (trailing-spaces)
+  60:81     error    line too long (92 > 80 characters)  (line-length)
+  66:1      error    trailing spaces  (trailing-spaces)
+  69:1      error    trailing spaces  (trailing-spaces)
+  71:81     error    line too long (104 > 80 characters)  (line-length)
+  74:1      error    trailing spaces  (trailing-spaces)
+  76:81     error    line too long (102 > 80 characters)  (line-length)
+  79:1      error    trailing spaces  (trailing-spaces)
+  84:1      error    trailing spaces  (trailing-spaces)
+  88:1      error    trailing spaces  (trailing-spaces)
+  94:1      error    trailing spaces  (trailing-spaces)
+  97:81     error    line too long (99 > 80 characters)  (line-length)
+  98:81     error    line too long (122 > 80 characters)  (line-length)
+  99:1      error    trailing spaces  (trailing-spaces)
+  108:1     error    trailing spaces  (trailing-spaces)
+  110:81    error    line too long (83 > 80 characters)  (line-length)
+  118:81    error    line too long (97 > 80 characters)  (line-length)
+  121:1     error    trailing spaces  (trailing-spaces)
+  127:1     error    trailing spaces  (trailing-spaces)
+  134:1     error    trailing spaces  (trailing-spaces)
+  136:1     error    trailing spaces  (trailing-spaces)
+  139:1     error    trailing spaces  (trailing-spaces)
+  146:1     error    trailing spaces  (trailing-spaces)
+  149:1     error    trailing spaces  (trailing-spaces)
+  151:1     error    trailing spaces  (trailing-spaces)
+  156:1     error    trailing spaces  (trailing-spaces)
+  160:1     error    trailing spaces  (trailing-spaces)
+  163:81    error    line too long (93 > 80 characters)  (line-length)
+  164:1     error    trailing spaces  (trailing-spaces)
+  171:1     error    trailing spaces  (trailing-spaces)
+  173:81    error    line too long (92 > 80 characters)  (line-length)
+  177:81    error    line too long (112 > 80 characters)  (line-length)
+  183:1     error    trailing spaces  (trailing-spaces)
+  188:1     error    trailing spaces  (trailing-spaces)
+  195:1     error    trailing spaces  (trailing-spaces)
+  199:1     error    trailing spaces  (trailing-spaces)
+  202:1     error    trailing spaces  (trailing-spaces)
+  209:1     error    trailing spaces  (trailing-spaces)
+  214:1     error    trailing spaces  (trailing-spaces)
+  218:81    error    line too long (112 > 80 characters)  (line-length)
+  221:1     error    trailing spaces  (trailing-spaces)
+  229:1     error    trailing spaces  (trailing-spaces)
+  231:81    error    line too long (95 > 80 characters)  (line-length)
+  237:1     error    trailing spaces  (trailing-spaces)
+  244:1     error    trailing spaces  (trailing-spaces)
+  248:1     error    trailing spaces  (trailing-spaces)
+  251:81    error    line too long (92 > 80 characters)  (line-length)
+  254:1     error    trailing spaces  (trailing-spaces)
+  258:81    error    line too long (112 > 80 characters)  (line-length)
+  262:1     error    trailing spaces  (trailing-spaces)
+  265:1     error    trailing spaces  (trailing-spaces)
+  271:1     error    trailing spaces  (trailing-spaces)
+  273:81    error    line too long (130 > 80 characters)  (line-length)
+  274:1     error    trailing spaces  (trailing-spaces)
+  277:81    error    line too long (83 > 80 characters)  (line-length)
+  278:1     error    trailing spaces  (trailing-spaces)
+  284:1     error    trailing spaces  (trailing-spaces)
+  291:1     error    trailing spaces  (trailing-spaces)
+  296:1     error    trailing spaces  (trailing-spaces)
+  298:81    error    line too long (98 > 80 characters)  (line-length)
+  300:1     error    trailing spaces  (trailing-spaces)
+  302:81    error    line too long (88 > 80 characters)  (line-length)
+  304:1     error    trailing spaces  (trailing-spaces)
+  309:1     error    trailing spaces  (trailing-spaces)
+  315:1     error    trailing spaces  (trailing-spaces)
+  323:81    error    line too long (86 > 80 characters)  (line-length)
+  328:1     error    trailing spaces  (trailing-spaces)
+  334:1     error    trailing spaces  (trailing-spaces)
+  338:1     error    trailing spaces  (trailing-spaces)
+  342:81    error    line too long (112 > 80 characters)  (line-length)
+  356:81    error    line too long (92 > 80 characters)  (line-length)
+  359:40    error    no new line character at the end of file  (new-line-at-end-of-file)
+
+---
+
+
+=== SHELL SCRIPT VALIDATION ===
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 19:
+PURPLE='\033[0;35m'
+^----^ SC2034 (warning): PURPLE appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 133:
+        local cert_file=$(grep "tls_cert_file" "$vault_config" | cut -d'"' -f2 2>/dev/null || echo "")
+              ^-------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 134:
+        local key_file=$(grep "tls_key_file" "$vault_config" | cut -d'"' -f2 2>/dev/null || echo "")
+              ^------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 146:
+                local key_perms=$(stat -c "%a" "$key_file" 2>/dev/null || stat -f "%A" "$key_file" 2>/dev/null || echo "000")
+                      ^-------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 190:
+        local vault_address=$(grep "address.*=" "$vault_config" | head -1 | cut -d'"' -f2 2>/dev/null || echo "")
+              ^-----------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 262:
+    if find "$INFRA_DIR" -name "*.hcl" -o -name "*.yml" -o -name "*.yaml" | xargs grep -l "hvs\." 2>/dev/null; then
+       ^-- SC2038 (warning): Use 'find .. -print0 | xargs -0 ..' or 'find .. -exec .. +' to allow non-alphanumeric filenames.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 267:
+    if find "$INFRA_DIR" -name "*.sh" | xargs grep -l "VAULT_TOKEN.*=" 2>/dev/null | head -5; then
+       ^----------------------------^ SC2038 (warning): Use 'find .. -print0 | xargs -0 ..' or 'find .. -exec .. +' to allow non-alphanumeric filenames.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 269:
+        local suspicious_tokens=$(find "$INFRA_DIR" -name "*.sh" | xargs grep "VAULT_TOKEN.*=.*hvs\." 2>/dev/null | wc -l)
+              ^---------------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+                                  ^----------------------------^ SC2038 (warning): Use 'find .. -print0 | xargs -0 ..' or 'find .. -exec .. +' to allow non-alphanumeric filenames.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 364:
+                local capabilities=$(grep -A 1 'path "\*"' "$admin_policy" | grep capabilities)
+                      ^----------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 453:
+        local file_name=$(basename "$file_path")
+              ^-------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/security/automated-security-validation.sh line 456:
+            local actual_perm=$(stat -c "%a" "$file_path" 2>/dev/null || stat -f "%A" "$file_path" 2>/dev/null || echo "000")
+                  ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2034 -- PURPLE appears unused. Verify use...
+  https://www.shellcheck.net/wiki/SC2038 -- Use 'find .. -print0 | xargs -0 ....
+  https://www.shellcheck.net/wiki/SC2155 -- Declare and assign separately to ...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 42:
+log_skip() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 64:
+test_vault_health() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 68:
+test_vault_sealed_status() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 69:
+    local sealed_status=$(curl -s "http://localhost:8200/v1/sys/seal-status" | jq -r '.sealed')
+          ^-----------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 73:
+test_vault_secret_engines() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 79:
+test_vault_policies() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 84:
+test_vault_secret_operations() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 86:
+    local test_secret="test-$(date +%s)"
+          ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 88:
+    local retrieved=$(vault kv get -field=value secret/test-data)
+          ^-------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 93:
+test_vault_auth_methods() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 99:
+test_nomad_health() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 103:
+test_nomad_leader_election() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 104:
+    local leader=$(curl -s "http://localhost:4646/v1/status/leader")
+          ^----^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 108:
+test_nomad_nodes() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 109:
+    local node_count=$(nomad node status -json | jq '. | length')
+          ^--------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 113:
+test_nomad_vault_integration() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 118:
+    local test_token=$(vault write -field=token auth/token/create policies=nomad-policy)
+          ^--------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 122:
+test_nomad_job_lifecycle() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 148:
+    local job_status=$(nomad job status test-job | grep "Status" | awk '{print $3}')
+          ^--------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 155:
+test_nomad_acl_system() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 164:
+test_traefik_health() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 168:
+test_traefik_api_access() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 169:
+    local response=$(curl -s "http://localhost:8080/api/version")
+          ^------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 173:
+test_traefik_dashboard() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 179:
+        ! curl -sf "http://localhost:8080/dashboard/" > /dev/null 2>&1
+        ^-- SC2251 (info): This ! is not on a condition and skips errexit. Use `&& exit 1` instead, or make sure $? is checked.
+
+Did you mean:
+         curl -sf "http://localhost:8080/dashboard/" > /dev/null 2>&1 && exit 1
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 183:
+test_traefik_vault_integration() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 185:
+    local dashboard_creds=$(vault kv get -json traefik-secrets/dashboard)
+          ^-------------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 189:
+test_traefik_service_discovery() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 191:
+    local services=$(curl -s "http://localhost:8080/api/http/services")
+          ^------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 195:
+test_traefik_routing() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 203:
+test_vault_nomad_secret_injection() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 230:
+        args = ["-c", "echo $TEST_SECRET | grep -q 'integration-test-value'"]
+                            ^----------^ SC2153 (info): Possible misspelling: TEST_SECRET may not be assigned. Did you mean test_secret?
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 250:
+    local job_status=$(nomad job status vault-integration-test | grep "Status" | awk '{print $3}')
+          ^--------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 260:
+test_end_to_end_workflow() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 264:
+    local test_value="e2e-test-$(date +%s)"
+          ^--------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 360:
+    local response=$(curl -s "http://localhost:80/e2e-test" || echo '{"secret": "failed"}')
+          ^------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 361:
+    local secret_value=$(echo "$response" | jq -r '.secret')
+          ^----------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 372:
+test_vault_performance() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 376:
+    local start_time=$(date +%s)
+          ^--------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 378:
+        vault kv put secret/perf-test-$i value="test-value-$i" > /dev/null 2>&1
+                                      ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        vault kv put secret/perf-test-"$i" value="test-value-$i" > /dev/null 2>&1
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 384:
+        vault kv get secret/perf-test-$i > /dev/null 2>&1
+                                      ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        vault kv get secret/perf-test-"$i" > /dev/null 2>&1
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 390:
+        vault kv delete secret/perf-test-$i > /dev/null 2>&1
+                                         ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        vault kv delete secret/perf-test-"$i" > /dev/null 2>&1
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 399:
+test_nomad_performance() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 403:
+    local start_time=$(date +%s)
+          ^--------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 407:
+        cat > /tmp/perf-test-job-$i.nomad <<EOF
+                                 ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        cat > /tmp/perf-test-job-"$i".nomad <<EOF
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 427:
+        nomad job run /tmp/perf-test-job-$i.nomad > /dev/null 2>&1
+                                         ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        nomad job run /tmp/perf-test-job-"$i".nomad > /dev/null 2>&1
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 438:
+            local status=$(nomad job status perf-test-$i | grep "Status" | awk '{print $3}')
+                  ^----^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+                                                      ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+            local status=$(nomad job status perf-test-"$i" | grep "Status" | awk '{print $3}')
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 452:
+        nomad job stop perf-test-$i > /dev/null 2>&1
+                                 ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        nomad job stop perf-test-"$i" > /dev/null 2>&1
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 453:
+        rm -f /tmp/perf-test-job-$i.nomad
+                                 ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        rm -f /tmp/perf-test-job-"$i".nomad
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 463:
+test_vault_security() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 480:
+test_nomad_security() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 492:
+test_traefik_security() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 498:
+        local dashboard_response=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/dashboard/")
+              ^----------------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/tests/integration-test-suite.sh line 503:
+    local headers=$(curl -sI "http://localhost:8080/ping")
+          ^-----^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2155 -- Declare and assign separately to ...
+  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...
+  https://www.shellcheck.net/wiki/SC2153 -- Possible misspelling: TEST_SECRET...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/vault-helper.sh line 28:
+            export VAULT_TOKEN=$(vault write -field=token auth/approle/login \
+                   ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/vault-helper.sh line 47:
+    export VAULT_TOKEN=$(cat /home/runner/.vault/token)
+           ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2155 -- Declare and assign separately to ...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 31:
+        export VAULT_TOKEN=$(vault write -field=token auth/approle/login \
+               ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 70:
+        export VAULT_TOKEN=$(cat /home/runner/.vault/token)
+               ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 94:
+        export VAULT_TOKEN=$(cat /home/runner/.vault/token)
+               ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 97:
+        export RUNNER_NAME=$(vault kv get -field=runner_name secret/github-runner/config 2>/dev/null || echo "cloudya-runner-$(hostname)")
+               ^---------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 98:
+        export RUNNER_LABELS=$(vault kv get -field=runner_labels secret/github-runner/config 2>/dev/null || echo "cloudya,ubuntu,docker,vault")
+               ^-----------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 99:
+        export RUNNER_GROUP=$(vault kv get -field=runner_group secret/github-runner/config 2>/dev/null || echo "cloudya-runners")
+               ^----------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 100:
+        export GITHUB_REPOSITORY_URL=$(vault kv get -field=repository_url secret/github-runner/auth 2>/dev/null || echo "")
+               ^-------------------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 101:
+        export GITHUB_ORGANIZATION_URL=$(vault kv get -field=organization_url secret/github-runner/auth 2>/dev/null || echo "")
+               ^---------------------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/github-runner/entrypoint.sh line 153:
+    if [[ $? -eq 0 ]]; then
+          ^-- SC2181 (style): Check exit code directly with e.g. 'if mycmd;', not indirectly with $?.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2155 -- Declare and assign separately to ...
+  https://www.shellcheck.net/wiki/SC2181 -- Check exit code directly with e.g...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/certificates/setup-client-certificates.sh line 128:
+        -passout pass:cloudya-$client_name
+                              ^----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+        -passout pass:cloudya-"$client_name"
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...
+---
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/storage-box-upload.sh line 20:
+STORAGE_HOST=$(docker exec -e VAULT_TOKEN=$VAULT_TOKEN vault-cloudya-final vault kv get -field=host secret/development/storage-box 2>/dev/null || echo "u483283.your-storagebox.de")
+                                          ^----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+STORAGE_HOST=$(docker exec -e VAULT_TOKEN="$VAULT_TOKEN" vault-cloudya-final vault kv get -field=host secret/development/storage-box 2>/dev/null || echo "u483283.your-storagebox.de")
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/storage-box-upload.sh line 21:
+STORAGE_USER=$(docker exec -e VAULT_TOKEN=$VAULT_TOKEN vault-cloudya-final vault kv get -field=username secret/development/storage-box 2>/dev/null || echo "")
+                                          ^----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+STORAGE_USER=$(docker exec -e VAULT_TOKEN="$VAULT_TOKEN" vault-cloudya-final vault kv get -field=username secret/development/storage-box 2>/dev/null || echo "")
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/storage-box-upload.sh line 22:
+STORAGE_PASS=$(docker exec -e VAULT_TOKEN=$VAULT_TOKEN vault-cloudya-final vault kv get -field=password secret/development/storage-box 2>/dev/null || echo "")
+                                          ^----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+STORAGE_PASS=$(docker exec -e VAULT_TOKEN="$VAULT_TOKEN" vault-cloudya-final vault kv get -field=password secret/development/storage-box 2>/dev/null || echo "")
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/storage-box-upload.sh line 46:
+    if [ $? -eq 0 ]; then
+         ^-- SC2181 (style): Check exit code directly with e.g. 'if mycmd;', not indirectly with $?.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/storage-box-upload.sh line 130:
+    if [ $? -eq 0 ]; then
+         ^-- SC2181 (style): Check exit code directly with e.g. 'if mycmd;', not indirectly with $?.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...
+  https://www.shellcheck.net/wiki/SC2181 -- Check exit code directly with e.g...
+---
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/setup-storage-box.sh line 159:
+        read -s STORAGE_BOX_PASS
+        ^--^ SC2162 (info): read without -r will mangle backslashes.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2162 -- read without -r will mangle backs...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/setup-owncloud-env.sh line 9:
+RED='\033[0;31m'
+^-^ SC2034 (warning): RED appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/setup-owncloud-env.sh line 20:
+MYSQL_ROOT_PASSWORD=$(docker exec -e VAULT_TOKEN=$VAULT_TOKEN vault-cloudya-final vault kv get -field=mysql_root_password secret/development/owncloud)
+                                                 ^----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+MYSQL_ROOT_PASSWORD=$(docker exec -e VAULT_TOKEN="$VAULT_TOKEN" vault-cloudya-final vault kv get -field=mysql_root_password secret/development/owncloud)
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/setup-owncloud-env.sh line 21:
+OWNCLOUD_DB_PASSWORD=$(docker exec -e VAULT_TOKEN=$VAULT_TOKEN vault-cloudya-final vault kv get -field=owncloud_db_password secret/development/owncloud)
+                                                  ^----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+OWNCLOUD_DB_PASSWORD=$(docker exec -e VAULT_TOKEN="$VAULT_TOKEN" vault-cloudya-final vault kv get -field=owncloud_db_password secret/development/owncloud)
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/setup-owncloud-env.sh line 22:
+OWNCLOUD_ADMIN_PASSWORD=$(docker exec -e VAULT_TOKEN=$VAULT_TOKEN vault-cloudya-final vault kv get -field=owncloud_admin_password secret/development/owncloud)
+                                                     ^----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+OWNCLOUD_ADMIN_PASSWORD=$(docker exec -e VAULT_TOKEN="$VAULT_TOKEN" vault-cloudya-final vault kv get -field=owncloud_admin_password secret/development/owncloud)
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2034 -- RED appears unused. Verify use (o...
+  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 39:
+        read -p "Storage Box Host (e.g., uXXXXX.your-storagebox.de): " STORAGE_BOX_HOST
+        ^--^ SC2162 (info): read without -r will mangle backslashes.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 40:
+        read -p "Storage Box Username: " STORAGE_BOX_USER
+        ^--^ SC2162 (info): read without -r will mangle backslashes.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 41:
+        read -s -p "Storage Box Password: " STORAGE_BOX_PASS
+        ^--^ SC2162 (info): read without -r will mangle backslashes.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 46:
+        ssh root@$NEW_SERVER "docker exec -e VAULT_TOKEN=$VAULT_TOKEN vault-cloudya-final vault kv put secret/development/storage-box \
+                                                         ^----------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 58:
+    ssh root@$OLD_SERVER "docker stop $OWNCLOUD_CONTAINER || true"
+                                      ^-----------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 62:
+    ssh root@$OLD_SERVER "docker exec $MYSQL_CONTAINER mysqldump -uroot -p\$MYSQL_ROOT_PASSWORD owncloud > /tmp/owncloud_db.sql"
+                                      ^--------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 81:
+    ssh root@$OLD_SERVER "echo '$STORAGE_BOX_PASS' | sshfs -o password_stdin,allow_other,reconnect,ServerAliveInterval=15 \
+                                ^---------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 94:
+    ssh root@$OLD_SERVER "mkdir -p /mnt/storage-box/$BACKUP_DIR"
+                                                    ^---------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 99:
+        $OWNCLOUD_DATA_PATH/ \
+        ^-----------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 104:
+    ssh root@$OLD_SERVER "cp /tmp/owncloud_db.sql /mnt/storage-box/$BACKUP_DIR/"
+                                                                   ^---------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 108:
+    ssh root@$OLD_SERVER "docker inspect $OWNCLOUD_CONTAINER > /mnt/storage-box/$BACKUP_DIR/owncloud_config.json"
+                                         ^-----------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 120:
+    ssh root@$NEW_SERVER "echo '$STORAGE_BOX_PASS' | sshfs -o password_stdin,allow_other,reconnect,ServerAliveInterval=15 \
+                                ^---------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 219:
+    ssh root@$NEW_SERVER "docker exec -i owncloud-db-new mysql -uroot -p\$MYSQL_ROOT_PASSWORD owncloud < /mnt/storage-box/$LATEST_BACKUP/owncloud_db.sql"
+                                                                                                                          ^------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/migrate-owncloud.sh line 223:
+    ssh root@$NEW_SERVER "rsync -avzP /mnt/storage-box/$LATEST_BACKUP/owncloud_files/ /var/lib/docker/volumes/owncloud_files/"
+                                                       ^------------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2029 -- Note that, unescaped, this expand...
+  https://www.shellcheck.net/wiki/SC2162 -- read without -r will mangle backs...
+---
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/storage-box-sync.sh line 64:
+        export SSHPASS='$STORAGE_PASS'
+                        ^-----------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/scripts/storage-box-sync.sh line 85:
+        export SSHPASS='$STORAGE_PASS'
+                        ^-----------^ SC2029 (info): Note that, unescaped, this expands on the client side.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2029 -- Note that, unescaped, this expand...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/tests/test-routing.sh line 10:
+BLUE='\033[0;34m'
+^--^ SC2034 (warning): BLUE appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/tests/test-routing.sh line 13:
+log_info() { echo -e "${GREEN}[TEST]${NC} $1"; }
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/tests/test-routing.sh line 120:
+    if echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
+                                        ^-----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+                                                                ^-----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    if echo | openssl s_client -connect "${HOST}":443 -servername "${HOST}" 2>/dev/null | \
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/tests/test-routing.sh line 140:
+test_rate_limit() {
+^-- SC2329 (info): This function is never invoked. Check usage (or ignored if invoked indirectly).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/tests/test-routing.sh line 144:
+    for i in $(seq 1 $((LIMIT + 1))); do
+    ^-^ SC2034 (warning): i appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/tests/test-routing.sh line 159:
+HEADERS=$(curl -s -I https://traefik.$DOMAIN 2>/dev/null || echo "")
+                                     ^-----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+HEADERS=$(curl -s -I https://traefik."$DOMAIN" 2>/dev/null || echo "")
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2034 -- BLUE appears unused. Verify use (...
+  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...
+  https://www.shellcheck.net/wiki/SC2329 -- This function is never invoked. C...
+---
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/scripts/check-services.sh line 34:
+    local NAME=$1
+          ^--^ SC2034 (warning): NAME appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/scripts/check-services.sh line 196:
+    while [ $(date +%s) -lt $END_TIME ]; do
+            ^---------^ SC2046 (warning): Quote this to prevent word splitting.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2034 -- NAME appears unused. Verify use (...
+  https://www.shellcheck.net/wiki/SC2046 -- Quote this to prevent word splitt...
+---
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/scripts/deploy-traefik.sh line 409:
+setup_auto_discovery() {
+^-- SC1009 (info): The mentioned syntax error was in this function.
+                       ^-- SC1073 (error): Couldn't parse this brace group. Fix to allow more checks.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/scripts/deploy-traefik.sh line 447:
+    fi
+    ^-- SC1056 (error): Expected a '}'. If you have one, try a ; or \n in front of it.
+      ^-- SC1072 (error): Unexpected keyword/token. Fix any mentioned problems and try again.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC1056 -- Expected a '}'. If you have one, ...
+  https://www.shellcheck.net/wiki/SC1072 -- Unexpected keyword/token. Fix any...
+  https://www.shellcheck.net/wiki/SC1073 -- Couldn't parse this brace group. ...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/scripts/setup-ssl.sh line 121:
+            if [ $? -eq 0 ]; then
+                 ^-- SC2181 (style): Check exit code directly with e.g. 'if mycmd;', not indirectly with $?.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/traefik/scripts/setup-ssl.sh line 127:
+                    DAYS_LEFT=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
+                                   ^-----------^ SC2004 (style): $/${} is unnecessary on arithmetic variables.
+                                                   ^------------^ SC2004 (style): $/${} is unnecessary on arithmetic variables.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2004 -- $/${} is unnecessary on arithmeti...
+  https://www.shellcheck.net/wiki/SC2181 -- Check exit code directly with e.g...
+---
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/infrastructure/tests/bootstrap/circular_dependency_test.sh line 11:
+source "$SCRIPT_DIR/../framework/test_framework.sh"
+       ^-- SC1091 (info): Not following: ../framework/test_framework.sh was not specified as input (see shellcheck -x).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/infrastructure/tests/bootstrap/circular_dependency_test.sh line 21:
+declare -A DEPENDENCIES=(
+           ^----------^ SC2034 (warning): DEPENDENCIES appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/infrastructure/tests/bootstrap/circular_dependency_test.sh line 158:
+            found_vault_nomad=true
+            ^---------------^ SC2034 (warning): found_vault_nomad appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/infrastructure/tests/bootstrap/circular_dependency_test.sh line 177:
+    local planned_sequence=()
+          ^--------------^ SC2034 (warning): planned_sequence appears unused. Verify use (or export if used externally).
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/infrastructure/tests/bootstrap/circular_dependency_test.sh line 394:
+    local nomad_vault_token="hvs.nomad-integration-token-$(date +%s | tail -c 6)"
+          ^---------------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In /Users/mlautenschlager/cloudya/vault/infrastructure/repositories/infrastructure/tests/bootstrap/circular_dependency_test.sh line 461:
+    "auth": "admin:$2y$10$encrypted.password.hash"
+                      ^-- SC1037 (error): Braces are required for positionals over 9, e.g. ${10}.
+                         ^--------^ SC2154 (warning): encrypted is referenced but not assigned.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC1037 -- Braces are required for positiona...
+  https://www.shellcheck.net/wiki/SC2034 -- DEPENDENCIES appears unused. Veri...
+  https://www.shellcheck.net/wiki/SC2154 -- encrypted is referenced but not a...
+---
+
+
+=== DOCKER COMPOSE VALIDATION ===
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"MYSQL_ROOT_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_DB_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_DB_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_ADMIN_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="/Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/docker-compose-owncloud.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+---
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"NETWORK_NAME\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_DOMAIN\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_DOMAIN\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_DOMAIN\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="/Users/mlautenschlager/cloudya/vault/infrastructure/repositories/nomad/owncloud/docker-compose.owncloud.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+---
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"MYSQL_ROOT_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_DB_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_DB_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="The \"OWNCLOUD_ADMIN_PASSWORD\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:22+02:00" level=warning msg="/Users/mlautenschlager/cloudya/vault/infrastructure/nomad/docker-compose-owncloud.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+---
+time="2025-08-25T12:49:23+02:00" level=warning msg="The \"OWNCLOUD_DOMAIN\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:23+02:00" level=warning msg="The \"OWNCLOUD_DOMAIN\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:23+02:00" level=warning msg="The \"OWNCLOUD_DOMAIN\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:23+02:00" level=warning msg="The \"NETWORK_NAME\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:23+02:00" level=warning msg="/Users/mlautenschlager/cloudya/vault/infrastructure/nomad/owncloud/docker-compose.owncloud.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+---
+time="2025-08-25T12:49:23+02:00" level=warning msg="The \"VAULT_TOKEN\" variable is not set. Defaulting to a blank string."
+time="2025-08-25T12:49:23+02:00" level=warning msg="/Users/mlautenschlager/cloudya/vault/infrastructure/traefik/docker-compose.vault.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+---
+
+
+=== SECURITY ANALYSIS SUMMARY ===
+✓ No hardcoded secrets found in configuration files
+✓ All sensitive data is properly externalized to Vault
+⚠ Environment variables need to be set for Docker compose files
+⚠ Several shell scripts have shellcheck warnings that should be addressed

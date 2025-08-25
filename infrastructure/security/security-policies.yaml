@@ -1,0 +1,281 @@
+---
+# Enterprise Infrastructure Security Policies
+# Comprehensive security configuration for all infrastructure components
+
+security_framework:
+  version: "1.0.0"
+  last_updated: "2025-08-25"
+  compliance_standards:
+    - "SOC2 Type II"
+    - "ISO 27001"
+    - "PCI DSS"
+    - "GDPR"
+
+# Vault Security Policies
+vault_policies:
+  root_protection:
+    description: "Protect root token and limit usage"
+    rules:
+      - "Root token usage must be logged and time-limited"
+      - "Root token must be regenerated after each use"
+      - "Emergency access only through break-glass procedure"
+    
+  secret_access:
+    description: "Control access to secrets"
+    policies:
+      - name: "nomad-server"
+        path: "nomad-secrets/*"
+        capabilities: ["create", "read", "update", "list"]
+        
+      - name: "nomad-client" 
+        path: "nomad-secrets/data/client/*"
+        capabilities: ["read"]
+        
+      - name: "traefik-service"
+        path: "traefik-secrets/*"
+        capabilities: ["read", "list"]
+        
+      - name: "monitoring"
+        path: "secret/data/monitoring/*"
+        capabilities: ["read"]
+    
+  authentication_methods:
+    - name: "userpass"
+      description: "Username/password for human users"
+      enabled: true
+      
+    - name: "approle"
+      description: "Application authentication"
+      enabled: true
+      
+    - name: "kubernetes"
+      description: "Kubernetes service account authentication"
+      enabled: true
+      
+    - name: "ldap"
+      description: "Corporate directory integration"
+      enabled: false  # Enable for production
+
+  audit_configuration:
+    enabled: true
+    file_audit:
+      path: "/vault/logs/audit.log"
+      rotation: "daily"
+      retention: "90d"
+    
+    syslog_audit:
+      enabled: false
+      facility: "local0"
+    
+    audit_rules:
+      - "Log all secret access attempts"
+      - "Log all policy changes"
+      - "Log all authentication events"
+      - "Log all administrative operations"
+
+# Nomad Security Policies  
+nomad_policies:
+  acl_configuration:
+    enabled: true
+    default_policy: "deny"
+    
+    policies:
+      - name: "developer"
+        description: "Development team access"
+        rules: |
+          namespace "default" {
+            policy = "write"
+          }
+          node {
+            policy = "read"
+          }
+          
+      - name: "operator"
+        description: "Operations team access"
+        rules: |
+          namespace "*" {
+            policy = "write"
+          }
+          node {
+            policy = "write"
+          }
+          operator {
+            policy = "write"
+          }
+          
+      - name: "monitoring"
+        description: "Monitoring system access"
+        rules: |
+          namespace "*" {
+            policy = "read"
+          }
+          node {
+            policy = "read"
+          }
+
+  network_security:
+    consul_connect:
+      enabled: true
+      ca_provider: "vault"
+      
+    service_mesh:
+      mutual_tls: true
+      intention_default_action: "deny"
+      
+    network_policies:
+      - "Default deny all traffic"
+      - "Allow only explicitly defined service communication"
+      - "Encrypt all inter-service communication"
+
+  resource_quotas:
+    by_namespace:
+      default:
+        cpu: "1000"
+        memory: "2GB"
+        network_mbits: "100"
+        
+      production:
+        cpu: "4000"
+        memory: "8GB"
+        network_mbits: "1000"
+
+# Traefik Security Policies
+traefik_policies:
+  tls_configuration:
+    min_version: "1.2"
+    cipher_suites:
+      - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+      - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+      - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+    
+    certificate_management:
+      acme_provider: "letsencrypt"
+      acme_email: "certificates@cloudya.com"
+      dns_challenge: true
+      
+  authentication:
+    dashboard:
+      auth_type: "basic"
+      users_source: "vault"
+      vault_path: "traefik-secrets/data/dashboard"
+      
+    api:
+      auth_type: "api_key"
+      key_source: "vault"
+      vault_path: "traefik-secrets/data/api"
+
+  security_headers:
+    - "X-Content-Type-Options: nosniff"
+    - "X-Frame-Options: DENY" 
+    - "X-XSS-Protection: 1; mode=block"
+    - "Strict-Transport-Security: max-age=31536000"
+    - "Referrer-Policy: strict-origin-when-cross-origin"
+    
+  rate_limiting:
+    global:
+      requests_per_second: 1000
+      burst: 2000
+      
+    per_ip:
+      requests_per_minute: 300
+      burst: 100
+
+# Cross-Service Security Configuration
+cross_service_security:
+  mutual_tls:
+    ca_provider: "vault"
+    certificate_lifetime: "24h"
+    auto_rotation: true
+    
+  service_discovery:
+    encryption: true
+    acl_enforcement: true
+    
+  inter_service_communication:
+    encryption_required: true
+    authentication_required: true
+    authorization_model: "rbac"
+
+# Monitoring and Alerting Security
+security_monitoring:
+  log_aggregation:
+    central_logging: true
+    log_encryption: true
+    log_retention: "1 year"
+    
+  intrusion_detection:
+    enabled: true
+    rules:
+      - "Multiple failed authentication attempts"
+      - "Unusual API access patterns"
+      - "Privilege escalation attempts"
+      - "Suspicious network traffic"
+      
+  vulnerability_scanning:
+    container_scanning: true
+    dependency_scanning: true
+    infrastructure_scanning: true
+    schedule: "daily"
+    
+  incident_response:
+    automation_rules:
+      - "Auto-block suspicious IP addresses"
+      - "Auto-rotate compromised credentials"
+      - "Auto-scale under DDoS conditions"
+    
+    notification_channels:
+      - "security-team@cloudya.com"
+      - "ops-oncall@cloudya.com"
+      - "slack://security-alerts"
+
+# Compliance and Audit
+compliance:
+  data_classification:
+    public: "No restrictions"
+    internal: "Company personnel only"
+    confidential: "Authorized personnel only"
+    restricted: "Named individuals only"
+    
+  data_handling:
+    encryption_at_rest: "AES-256"
+    encryption_in_transit: "TLS 1.3"
+    key_management: "vault"
+    
+  audit_requirements:
+    access_logging: "All access attempts"
+    change_logging: "All configuration changes"
+    admin_logging: "All administrative actions"
+    data_access_logging: "All sensitive data access"
+    
+  retention_policies:
+    audit_logs: "7 years"
+    access_logs: "1 year"
+    security_logs: "2 years"
+    
+# Emergency Procedures
+emergency_procedures:
+  break_glass_access:
+    vault:
+      procedure: "Use emergency recovery keys"
+      authorization_required: "Two senior engineers"
+      
+    nomad:
+      procedure: "Use bootstrap token"
+      authorization_required: "Operations manager"
+      
+    traefik:
+      procedure: "Direct container access"
+      authorization_required: "Platform engineer"
+      
+  incident_response:
+    security_breach:
+      - "Isolate affected systems"
+      - "Notify security team"
+      - "Preserve evidence"
+      - "Begin forensic analysis"
+      
+    service_compromise:
+      - "Rotate all credentials"
+      - "Update security policies"
+      - "Conduct security review"
+      - "Document lessons learned"

@@ -1,0 +1,177 @@
+# Prometheus Configuration for Cloudya Infrastructure
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'cloudya-production'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'
+rule_files:
+  - "rules/*.yml"
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Node Exporter - System metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['cloudya.net:9100']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+
+  # Vault metrics
+  - job_name: 'vault'
+    static_configs:
+      - targets: ['vault.cloudya.net:8200']
+    scrape_interval: 30s
+    metrics_path: /v1/sys/metrics
+    params:
+      format: ['prometheus']
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    bearer_token_file: /etc/prometheus/vault-token
+
+  # Nomad metrics
+  - job_name: 'nomad'
+    static_configs:
+      - targets: ['nomad.cloudya.net:4646']
+    scrape_interval: 30s
+    metrics_path: /v1/metrics
+    params:
+      format: ['prometheus']
+
+  # Consul metrics
+  - job_name: 'consul'
+    static_configs:
+      - targets: ['cloudya.net:8500']
+    scrape_interval: 30s
+    metrics_path: /v1/agent/metrics
+    params:
+      format: ['prometheus']
+
+  # Traefik metrics
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik.cloudya.net:8082']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # Container metrics via cAdvisor
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # Docker daemon metrics (if enabled)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['cloudya.net:9323']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Blackbox exporter for endpoint monitoring
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://cloudya.net
+        - https://vault.cloudya.net
+        - https://nomad.cloudya.net
+        - https://traefik.cloudya.net
+        - https://grafana.cloudya.net
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # SSL certificate expiry monitoring
+  - job_name: 'blackbox-ssl'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+        - cloudya.net:443
+        - vault.cloudya.net:443
+        - nomad.cloudya.net:443
+        - traefik.cloudya.net:443
+        - grafana.cloudya.net:443
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Application-specific metrics (if applications export metrics)
+  - job_name: 'cloudya-apps'
+    consul_sd_configs:
+      - server: 'consul:8500'
+        services: ['app-metrics']
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: service
+      - source_labels: [__meta_consul_node]
+        target_label: node
+
+  # Redis metrics (if redis_exporter is deployed)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['cloudya.net:9121']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # PostgreSQL metrics (if postgres_exporter is deployed)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['cloudya.net:9187']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Nginx metrics (if nginx_exporter is deployed)
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['cloudya.net:9113']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+# Remote write configuration for long-term storage (optional)
+# remote_write:
+#   - url: "https://prometheus.example.com/api/v1/write"
+#     basic_auth:
+#       username: "prometheus"
+#       password: "secure_password"
+#     write_relabel_configs:
+#       - source_labels: [__name__]
+#         regex: 'up|http_requests_total|cpu_usage_seconds_total'
+#         action: keep
+
+# Remote read configuration (optional)
+# remote_read:
+#   - url: "https://prometheus.example.com/api/v1/read"
+#     basic_auth:
+#       username: "prometheus"
+#       password: "secure_password"

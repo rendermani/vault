@@ -1,0 +1,480 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2024-08-24T21:47:00.000Z",
+  "__export_source": "insomnia.desktop.app:v2023.5.8",
+  "resources": [
+    {
+      "_id": "wrk_vault_api",
+      "_type": "workspace",
+      "name": "Vault API Testing",
+      "description": "Comprehensive HashiCorp Vault API endpoint testing collection"
+    },
+    {
+      "_id": "env_vault_base",
+      "_type": "environment",
+      "name": "Vault Base Environment",
+      "data": {
+        "vault_addr": "http://127.0.0.1:8200",
+        "vault_token": "",
+        "api_version": "v1"
+      },
+      "dataPropertyOrder": {
+        "&": ["vault_addr", "vault_token", "api_version"]
+      },
+      "color": null,
+      "isPrivate": false,
+      "metaSortKey": 1692901620000,
+      "parentId": "wrk_vault_api"
+    },
+    {
+      "_id": "fld_system_health",
+      "_type": "request_group",
+      "name": "System Health & Status",
+      "description": "Core system health and status endpoints",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1692901620000,
+      "parentId": "wrk_vault_api"
+    },
+    {
+      "_id": "req_health_check",
+      "_type": "request",
+      "name": "Health Check",
+      "description": "Check Vault health status",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/health",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1692901620000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_system_health"
+    },
+    {
+      "_id": "req_health_standby",
+      "_type": "request",
+      "name": "Health Check (Standby OK)",
+      "description": "Check health allowing standby nodes",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/health?standbyok=true",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "standbyok",
+          "value": "true"
+        }
+      ],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1692901619000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_system_health"
+    },
+    {
+      "_id": "req_seal_status",
+      "_type": "request",
+      "name": "Seal Status",
+      "description": "Get seal status information",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/seal-status",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1692901618000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_system_health"
+    },
+    {
+      "_id": "req_leader_info",
+      "_type": "request",
+      "name": "Leader Information",
+      "description": "Get cluster leader information",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/leader",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1692901617000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_system_health"
+    },
+    {
+      "_id": "fld_authentication",
+      "_type": "request_group",
+      "name": "Authentication",
+      "description": "Authentication method endpoints",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1692901610000,
+      "parentId": "wrk_vault_api"
+    },
+    {
+      "_id": "req_list_auth",
+      "_type": "request",
+      "name": "List Auth Methods",
+      "description": "List all enabled authentication methods",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/auth",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901610000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_authentication"
+    },
+    {
+      "_id": "req_token_lookup_self",
+      "_type": "request",
+      "name": "Token Self Lookup",
+      "description": "Look up information about current token",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/auth/token/lookup-self",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901609000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_authentication"
+    },
+    {
+      "_id": "req_token_renew_self",
+      "_type": "request",
+      "name": "Token Self Renew",
+      "description": "Renew current token",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/auth/token/renew-self",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"increment\": \"1h\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901608000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_authentication"
+    },
+    {
+      "_id": "fld_secrets_engines",
+      "_type": "request_group",
+      "name": "Secrets Engines",
+      "description": "Secrets engine endpoints",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1692901600000,
+      "parentId": "wrk_vault_api"
+    },
+    {
+      "_id": "req_list_mounts",
+      "_type": "request",
+      "name": "List Mounts",
+      "description": "List all mounted secrets engines",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/mounts",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901600000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_secrets_engines"
+    },
+    {
+      "_id": "req_kv_list_secrets",
+      "_type": "request",
+      "name": "KV v2 - List Secrets",
+      "description": "List secrets in KV v2 engine",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/secret/metadata?list=true",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "list",
+          "value": "true"
+        }
+      ],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901599000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_secrets_engines"
+    },
+    {
+      "_id": "req_kv_write_secret",
+      "_type": "request",
+      "name": "KV v2 - Write Secret",
+      "description": "Write a secret to KV v2 engine",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/secret/data/myapp/config",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"data\": {\n    \"password\": \"secret123\",\n    \"username\": \"admin\",\n    \"api_key\": \"abcd-efgh-ijkl\"\n  }\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901598000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_secrets_engines"
+    },
+    {
+      "_id": "req_pki_ca_cert",
+      "_type": "request",
+      "name": "PKI - Get CA Certificate",
+      "description": "Get PKI CA certificate in PEM format",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/pki/ca/pem",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1692901597000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_secrets_engines"
+    },
+    {
+      "_id": "fld_policies",
+      "_type": "request_group",
+      "name": "Policy Management",
+      "description": "Policy management endpoints",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1692901590000,
+      "parentId": "wrk_vault_api"
+    },
+    {
+      "_id": "req_list_policies",
+      "_type": "request",
+      "name": "List ACL Policies",
+      "description": "List all ACL policies",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/policies/acl?list=true",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "list",
+          "value": "true"
+        }
+      ],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901590000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_policies"
+    },
+    {
+      "_id": "req_create_policy",
+      "_type": "request",
+      "name": "Create/Update Policy",
+      "description": "Create or update an ACL policy",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/policies/acl/my-policy",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"policy\": \"path \\\"secret/data/*\\\" {\\n  capabilities = [\\\"read\\\", \\\"list\\\"]\\n}\\n\\npath \\\"secret/metadata/*\\\" {\\n  capabilities = [\\\"list\\\"]\\n}\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "X-Vault-Token",
+          "value": "{{ _.vault_token }}"
+        },
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901589000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_policies"
+    },
+    {
+      "_id": "fld_administration",
+      "_type": "request_group",
+      "name": "Administration",
+      "description": "Administrative endpoints",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1692901580000,
+      "parentId": "wrk_vault_api"
+    },
+    {
+      "_id": "req_init_status",
+      "_type": "request",
+      "name": "Initialization Status",
+      "description": "Check if Vault is initialized",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/init",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": -1692901580000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_administration"
+    },
+    {
+      "_id": "req_unseal_vault",
+      "_type": "request",
+      "name": "Unseal Vault",
+      "description": "Provide an unseal key to unseal Vault",
+      "url": "{{ _.vault_addr }}/{{ _.api_version }}/sys/unseal",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"key\": \"your-unseal-key-here\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": -1692901579000,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "parentId": "fld_administration"
+    }
+  ]
+}

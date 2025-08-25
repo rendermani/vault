@@ -1,0 +1,175 @@
+# Docker Compose for Local Infrastructure Testing
+# This file allows local testing of the infrastructure components before remote deployment
+
+version: '3.8'
+
+services:
+  # Consul for service discovery
+  consul:
+    image: consul:${CONSUL_VERSION:-1.17.0}
+    container_name: test-consul
+    restart: unless-stopped
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+    command: >
+      consul agent 
+      -server 
+      -bootstrap-expect=1 
+      -client=0.0.0.0 
+      -ui-config-enabled=true
+      -data-dir=/consul/data
+      -config-dir=/consul/config
+    volumes:
+      - consul-data:/consul/data
+      - consul-config:/consul/config
+    networks:
+      - infrastructure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nomad for container orchestration
+  nomad-server:
+    image: multani/nomad:${NOMAD_VERSION:-1.7.2}
+    container_name: test-nomad
+    restart: unless-stopped
+    ports:
+      - "4646:4646"  # HTTP API
+      - "4647:4647"  # RPC
+      - "4648:4648"  # Serf
+    environment:
+      - NOMAD_LOCAL_CONFIG='{
+          "datacenter": "dc1",
+          "data_dir": "/nomad/data",
+          "log_level": "INFO",
+          "server": {
+            "enabled": true,
+            "bootstrap_expect": 1
+          },
+          "client": {
+            "enabled": true
+          },
+          "consul": {
+            "address": "consul:8500"
+          },
+          "ui_config": {
+            "enabled": true
+          },
+          "ports": {
+            "http": 4646,
+            "rpc": 4647,
+            "serf": 4648
+          }
+        }'
+    volumes:
+      - nomad-data:/nomad/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - infrastructure
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nomad", "node", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Vault for secrets management
+  vault:
+    image: hashicorp/vault:${VAULT_VERSION:-1.15.4}
+    container_name: test-vault
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=dev-root-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+      - VAULT_ADDR=http://0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault-data:/vault/data
+      - vault-logs:/vault/logs
+    networks:
+      - infrastructure
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: vault server -dev
+
+  # Traefik for load balancing and SSL termination
+  traefik:
+    image: traefik:v3.0
+    container_name: test-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard
+    environment:
+      - TRAEFIK_API_DASHBOARD=true
+      - TRAEFIK_API_INSECURE=true
+      - TRAEFIK_PROVIDERS_CONSUL_CATALOG_ENDPOINTS=consul:8500
+      - TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:80
+      - TRAEFIK_ENTRYPOINTS_WEBSECURE_ADDRESS=:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-data:/data
+      - ./traefik/config/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/config/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - infrastructure
+    depends_on:
+      - consul
+      - vault
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Test service to validate the setup
+  test-app:
+    image: nginx:alpine
+    container_name: test-app
+    restart: unless-stopped
+    expose:
+      - "80"
+    volumes:
+      - ./tests/test-app:/usr/share/nginx/html:ro
+    networks:
+      - infrastructure
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.test-app.rule=Host(`test.localhost`)"
+      - "traefik.http.routers.test-app.entrypoints=web"
+      - "traefik.http.services.test-app.loadbalancer.server.port=80"
+
+# Networks
+networks:
+  infrastructure:
+    driver: bridge
+    name: infrastructure-test
+
+# Volumes
+volumes:
+  consul-data:
+    driver: local
+  consul-config:
+    driver: local
+  nomad-data:
+    driver: local
+  vault-data:
+    driver: local
+  vault-logs:
+    driver: local
+  traefik-data:
+    driver: local

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infrastructure Test App</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 50px auto; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container { 
+            background: rgba(255,255,255,0.1); 
+            padding: 30px; 
+            border-radius: 10px; 
+            backdrop-filter: blur(10px);
+        }
+        .status { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 20px 0; 
+        }
+        .service { 
+            text-align: center; 
+            padding: 20px; 
+            background: rgba(255,255,255,0.1); 
+            border-radius: 5px; 
+            flex: 1; 
+            margin: 0 10px; 
+        }
+        .service.healthy { 
+            background: rgba(40, 167, 69, 0.3); 
+        }
+        .service.unhealthy { 
+            background: rgba(220, 53, 69, 0.3); 
+        }
+        h1 { text-align: center; margin-bottom: 30px; }
+        h2 { color: #ffd700; }
+        a { color: #87ceeb; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Infrastructure Test Application</h1>
+        <p>This application validates that all infrastructure components are running correctly.</p>
+        
+        <h2>Service Status</h2>
+        <div class="status">
+            <div class="service" id="consul">
+                <h3>Consul</h3>
+                <div id="consul-status">Checking...</div>
+                <p><a href="http://localhost:8500" target="_blank">Open Dashboard</a></p>
+            </div>
+            <div class="service" id="nomad">
+                <h3>Nomad</h3>
+                <div id="nomad-status">Checking...</div>
+                <p><a href="http://localhost:4646" target="_blank">Open Dashboard</a></p>
+            </div>
+            <div class="service" id="vault">
+                <h3>Vault</h3>
+                <div id="vault-status">Checking...</div>
+                <p><a href="http://localhost:8200" target="_blank">Open Dashboard</a></p>
+            </div>
+            <div class="service" id="traefik">
+                <h3>Traefik</h3>
+                <div id="traefik-status">Checking...</div>
+                <p><a href="http://localhost:8080" target="_blank">Open Dashboard</a></p>
+            </div>
+        </div>
+        
+        <h2>Testing Instructions</h2>
+        <ol>
+            <li>Run <code>docker-compose -f docker-compose.local-test.yml up -d</code></li>
+            <li>Wait for all services to become healthy (check status above)</li>
+            <li>Test service connectivity using the dashboard links</li>
+            <li>Run deployment script: <code>./scripts/unified-bootstrap.sh --environment develop --dry-run</code></li>
+            <li>Clean up: <code>docker-compose -f docker-compose.local-test.yml down -v</code></li>
+        </ol>
+        
+        <h2>Remote Deployment</h2>
+        <p>Once local testing passes, deploy to remote server using GitHub Actions:</p>
+        <ul>
+            <li>Push changes to trigger automatic deployment</li>
+            <li>Or use manual workflow dispatch for controlled deployment</li>
+            <li>Monitor deployment progress in GitHub Actions</li>
+        </ul>
+    </div>
+
+    <script>
+        // Simple health check for services
+        function checkService(name, url, elementId) {
+            fetch(url, { mode: 'no-cors' })
+                .then(() => {
+                    document.getElementById(elementId).innerHTML = '✅ Healthy';
+                    document.getElementById(name).className = 'service healthy';
+                })
+                .catch(() => {
+                    document.getElementById(elementId).innerHTML = '❌ Unhealthy';
+                    document.getElementById(name).className = 'service unhealthy';
+                });
+        }
+
+        // Check services when page loads
+        window.onload = function() {
+            setTimeout(() => {
+                checkService('consul', 'http://localhost:8500/v1/status/leader', 'consul-status');
+                checkService('nomad', 'http://localhost:4646/v1/status/leader', 'nomad-status');
+                checkService('vault', 'http://localhost:8200/v1/sys/health', 'vault-status');
+                checkService('traefik', 'http://localhost:8080/ping', 'traefik-status');
+            }, 2000);
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,319 @@
+# Improved GitHub Workflow for Configuration Changes
+# This addresses the issues identified in the configuration change testing
+
+name: Deploy Vault to cloudya.net (Improved)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+      - 'feature/**'
+      - 'hotfix/**'
+    paths:
+      - '.github/workflows/deploy.yml'
+      - 'scripts/**'
+      - 'config/**'
+      - 'policies/**'
+      
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      action:
+        description: 'Deployment action'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - init
+          - unseal
+          - rotate-keys
+          - rollback
+          - validate-only
+
+env:
+  VAULT_VERSION: "1.17.3"
+  DEPLOY_HOST: "cloudya.net"
+  DEPLOY_USER: "root"
+
+jobs:
+  validate-configuration:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download Vault for validation
+        run: |
+          wget -q https://releases.hashicorp.com/vault/${{ env.VAULT_VERSION }}/vault_${{ env.VAULT_VERSION }}_linux_amd64.zip
+          unzip -q vault_${{ env.VAULT_VERSION }}_linux_amd64.zip
+          chmod +x vault
+          sudo mv vault /usr/local/bin/
+      
+      - name: Validate Vault Configuration
+        run: |
+          echo "Validating vault.hcl configuration..."
+          vault validate config/vault.hcl
+          
+      - name: Validate Policies
+        run: |
+          echo "Validating policy files..."
+          for policy in policies/*.hcl; do
+            if [ -f "$policy" ]; then
+              echo "Validating $policy"
+              vault policy fmt "$policy" > /dev/null
+            fi
+          done
+          
+      - name: Validate Scripts
+        run: |
+          echo "Validating shell scripts..."
+          shellcheck scripts/*.sh
+
+  deploy-vault:
+    name: Deploy Vault to ${{ inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'staging') }}
+    runs-on: ubuntu-latest
+    needs: validate-configuration
+    environment: ${{ inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'staging') }}
+    
+    steps:
+      - name: Determine Environment
+        id: determine-env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "action=${{ inputs.action }}" >> $GITHUB_OUTPUT
+          else
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              echo "environment=production" >> $GITHUB_OUTPUT
+            else
+              echo "environment=staging" >> $GITHUB_OUTPUT
+            fi
+            echo "action=deploy" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Display Deployment Info
+        run: |
+          echo "🚀 Deploying to: ${{ steps.determine-env.outputs.environment }}"
+          echo "📦 Action: ${{ steps.determine-env.outputs.action }}"
+          echo "🌳 Branch: ${{ github.ref_name }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+      
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+      
+      # Pre-deployment backup
+      - name: Create Backup
+        if: ${{ steps.determine-env.outputs.action == 'deploy' }}
+        run: |
+          echo "Creating backup before deployment..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            if [ -x /opt/scripts/deploy-vault.sh ]; then
+              /opt/scripts/deploy-vault.sh --action backup
+            elif [ -f /etc/vault.d/vault.hcl ]; then
+              # Manual backup if deploy script not available
+              BACKUP_DIR="/backups/vault/$(date +%Y%m%d-%H%M%S)"
+              mkdir -p "$BACKUP_DIR"
+              cp -r /etc/vault.d/ "$BACKUP_DIR/config/" 2>/dev/null || true
+              systemctl status vault > "$BACKUP_DIR/service-status.txt" 2>/dev/null || true
+              echo "Manual backup created: $BACKUP_DIR"
+            fi
+          EOF
+      
+      # Copy deployment files
+      - name: Upload Deployment Files
+        if: ${{ steps.determine-env.outputs.action == 'deploy' }}
+        run: |
+          # Upload scripts
+          scp -r scripts/ ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:/opt/
+          
+          # Upload configuration
+          scp -r config/ ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:/opt/
+          
+          # Upload policies
+          scp -r policies/ ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:/opt/
+          
+          # Make scripts executable
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} \
+            'chmod +x /opt/scripts/*.sh'
+      
+      # Main deployment using deploy script
+      - name: Deploy Vault
+        if: ${{ steps.determine-env.outputs.action == 'deploy' }}
+        id: deploy
+        run: |
+          echo "Deploying Vault using deploy-vault.sh script..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << EOF
+            set -e
+            export VAULT_VERSION=${{ env.VAULT_VERSION }}
+            
+            # Run deployment script
+            if /opt/scripts/deploy-vault.sh --environment ${{ steps.determine-env.outputs.environment }} --action install; then
+              echo "deployment_status=success" >> $GITHUB_OUTPUT
+            else
+              echo "deployment_status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          EOF
+      
+      # Post-deployment validation
+      - name: Validate Deployment
+        if: ${{ steps.determine-env.outputs.action == 'deploy' && steps.deploy.outputs.deployment_status == 'success' }}
+        run: |
+          echo "Validating deployment..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            set -e
+            export VAULT_ADDR=http://localhost:8200
+            
+            # Wait for Vault to be ready
+            echo "Waiting for Vault to be ready..."
+            for i in {1..30}; do
+              if vault status >/dev/null 2>&1; then
+                echo "✅ Vault is ready"
+                break
+              fi
+              sleep 2
+            done
+            
+            # Validate service is running
+            if ! systemctl is-active --quiet vault; then
+              echo "❌ Vault service is not active"
+              exit 1
+            fi
+            
+            # Check API health
+            if ! curl -f -s http://localhost:8200/v1/sys/health >/dev/null; then
+              echo "❌ Vault API health check failed"
+              exit 1
+            fi
+            
+            echo "✅ Vault deployment validated successfully"
+          EOF
+      
+      # Deploy policies (hot-reload)
+      - name: Deploy Policies
+        if: ${{ steps.determine-env.outputs.action == 'deploy' && steps.deploy.outputs.deployment_status == 'success' }}
+        run: |
+          echo "Deploying policies via Vault API..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            set -e
+            export VAULT_ADDR=http://localhost:8200
+            
+            # Load root token if available
+            if [ -f /root/.vault/root-token ]; then
+              export VAULT_TOKEN=$(cat /root/.vault/root-token)
+              
+              # Deploy all policies
+              for policy_file in /opt/policies/*.hcl; do
+                if [ -f "$policy_file" ]; then
+                  policy_name=$(basename "$policy_file" .hcl)
+                  echo "Deploying policy: $policy_name"
+                  vault policy write "$policy_name" "$policy_file"
+                fi
+              done
+              
+              echo "✅ Policies deployed successfully"
+            else
+              echo "⚠️ No root token available, skipping policy deployment"
+            fi
+          EOF
+      
+      # Rollback on failure
+      - name: Rollback on Failure
+        if: ${{ failure() && steps.determine-env.outputs.action == 'deploy' }}
+        run: |
+          echo "🔄 Deployment failed, initiating rollback..."
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            set -e
+            
+            # Find latest backup
+            LATEST_BACKUP=$(ls -t /backups/vault/ 2>/dev/null | head -1)
+            
+            if [ -n "$LATEST_BACKUP" ]; then
+              echo "Rolling back to backup: $LATEST_BACKUP"
+              
+              # Stop vault
+              systemctl stop vault || true
+              
+              # Restore configuration
+              if [ -d "/backups/vault/$LATEST_BACKUP/config" ]; then
+                cp -r "/backups/vault/$LATEST_BACKUP/config/"* /etc/vault.d/
+              fi
+              
+              # Restart vault
+              systemctl start vault
+              
+              echo "✅ Rollback completed"
+            else
+              echo "❌ No backup available for rollback"
+            fi
+          EOF
+      
+      # Other actions (init, unseal, etc.)
+      - name: Initialize Vault
+        if: ${{ steps.determine-env.outputs.action == 'init' }}
+        run: |
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} \
+            '/opt/scripts/deploy-vault.sh --action init'
+      
+      - name: Unseal Vault
+        if: ${{ steps.determine-env.outputs.action == 'unseal' }}
+        run: |
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+            export VAULT_ADDR=http://localhost:8200
+            
+            if [ -f /root/.vault/init-${{ steps.determine-env.outputs.environment }}.json ]; then
+              echo "Unsealing Vault..."
+              for i in 1 2 3; do
+                KEY=$(jq -r ".unseal_keys_b64[$((i-1))]" /root/.vault/init-${{ steps.determine-env.outputs.environment }}.json)
+                vault operator unseal $KEY
+              done
+              vault status
+            else
+              echo "❌ Init file not found"
+              exit 1
+            fi
+          EOF
+      
+      - name: Rotate Keys
+        if: ${{ steps.determine-env.outputs.action == 'rotate-keys' }}
+        run: |
+          ssh ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} \
+            '/opt/scripts/rotate-keys.sh'
+      
+      - name: Validate Only
+        if: ${{ steps.determine-env.outputs.action == 'validate-only' }}
+        run: |
+          echo "✅ Configuration validation completed in pre-deployment step"
+      
+      # Final status report
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ steps.determine-env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action**: ${{ steps.determine-env.outputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Cleanup SSH
+        if: always()
+        run: rm -f ~/.ssh/id_rsa

@@ -1,0 +1,3 @@
+fresh_downtime=10.0s
+noop_downtime=0.0s
+downtime_savings=10.0s

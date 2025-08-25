@@ -1,0 +1,331 @@
+version: '3.8'
+
+# Production Monitoring Stack for Cloudya Infrastructure
+# Includes Prometheus, Grafana, AlertManager, and supporting services
+
+networks:
+  monitoring:
+    name: cloudya-monitoring
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  prometheus_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/cloudya-data/monitoring/prometheus
+      o: bind
+      
+  grafana_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/cloudya-data/monitoring/grafana
+      o: bind
+      
+  alertmanager_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/cloudya-data/monitoring/alertmanager
+      o: bind
+
+services:
+  # Prometheus - Metrics collection and storage
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: cloudya-prometheus
+    hostname: prometheus
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.10
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus/config:/etc/prometheus:ro
+      - /var/log/cloudya:/var/log/cloudya:ro
+    environment:
+      - TZ=UTC
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=50GB'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--web.external-url=https://prometheus.cloudya.net'
+      - '--web.route-prefix=/'
+      - '--log.level=info'
+      - '--log.format=json'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cloudya-monitoring"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.cloudya.net`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.prometheus.middlewares=auth-prometheus,security-headers"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+      - "traefik.http.middlewares.auth-prometheus.basicauth.users=admin:$$2y$$10$$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Grafana - Metrics visualization and dashboards
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: cloudya-grafana
+    hostname: grafana
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.20
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - /var/log/cloudya:/var/log/cloudya:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_SECRET_KEY=${GRAFANA_SECRET_KEY:-SW2YcwTIb9zpOOhoPsMm}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      - GF_USERS_AUTO_ASSIGN_ORG=true
+      - GF_USERS_AUTO_ASSIGN_ORG_ROLE=Viewer
+      - GF_SERVER_ROOT_URL=https://grafana.cloudya.net
+      - GF_SERVER_DOMAIN=grafana.cloudya.net
+      - GF_SERVER_ENFORCE_DOMAIN=true
+      - GF_SERVER_PROTOCOL=http
+      - GF_DATABASE_TYPE=sqlite3
+      - GF_DATABASE_PATH=/var/lib/grafana/grafana.db
+      - GF_SESSION_PROVIDER=file
+      - GF_SESSION_PROVIDER_CONFIG=/var/lib/grafana/sessions
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_LOG_MODE=console,file
+      - GF_LOG_LEVEL=info
+      - GF_LOG_FORMAT=json
+      - GF_ALERTING_ENABLED=true
+      - GF_ALERTING_EXECUTE_ALERTS=true
+      - GF_METRICS_ENABLED=true
+      - GF_METRICS_INTERVAL_SECONDS=10
+      - GF_EXPLORE_ENABLED=true
+      - GF_PANELS_ENABLE_ALPHA=true
+      - GF_FEATURE_TOGGLES_ENABLE=ngalert
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-worldmap-panel,grafana-piechart-panel
+      - TZ=UTC
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cloudya-monitoring"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.cloudya.net`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.grafana.middlewares=security-headers"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+  # AlertManager - Alert handling and routing
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: cloudya-alertmanager
+    hostname: alertmanager
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.30
+    ports:
+      - "9093:9093"
+    volumes:
+      - alertmanager_data:/alertmanager
+      - ./alertmanager/config:/etc/alertmanager:ro
+    environment:
+      - TZ=UTC
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=https://alertmanager.cloudya.net'
+      - '--web.route-prefix=/'
+      - '--cluster.listen-address='
+      - '--log.level=info'
+      - '--log.format=json'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cloudya-monitoring"
+      - "traefik.http.routers.alertmanager.rule=Host(`alertmanager.cloudya.net`)"
+      - "traefik.http.routers.alertmanager.entrypoints=websecure"
+      - "traefik.http.routers.alertmanager.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.alertmanager.middlewares=auth-alertmanager,security-headers"
+      - "traefik.http.services.alertmanager.loadbalancer.server.port=9093"
+      - "traefik.http.middlewares.auth-alertmanager.basicauth.users=admin:$$2y$$10$$2b2cu2a6YjdwQqN3QP1PxOqUf7w7VgLhvx6xXPB.XD9QqQ5U9Q2a2"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9093/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Blackbox Exporter - Endpoint monitoring
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: cloudya-blackbox-exporter
+    hostname: blackbox-exporter
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.40
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox/config:/config:ro
+    environment:
+      - TZ=UTC
+    command:
+      - '--config.file=/config/blackbox.yml'
+      - '--log.level=info'
+      - '--log.format=json'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9115/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # cAdvisor - Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cloudya-cadvisor
+    hostname: cadvisor
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.50
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    environment:
+      - TZ=UTC
+    command:
+      - '--logtostderr'
+      - '--docker_only'
+      - '--housekeeping_interval=10s'
+      - '--max_housekeeping_interval=15s'
+      - '--event_storage_event_limit=default=0'
+      - '--event_storage_age_limit=default=0'
+      - '--disable_metrics=percpu,sched,tcp,udp,disk,diskIO,accelerator'
+      - '--store_container_labels=false'
+      - '--whitelisted_container_labels=io.kubernetes.container.name,io.kubernetes.pod.name,io.kubernetes.pod.namespace'
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: cloudya-loki
+    hostname: loki
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.60
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/config:/etc/loki:ro
+      - /opt/cloudya-data/monitoring/loki:/loki
+      - /var/log/cloudya:/var/log/cloudya:ro
+    environment:
+      - TZ=UTC
+    command:
+      - '-config.file=/etc/loki/loki.yml'
+      - '-target=all'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Promtail - Log shipping to Loki
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: cloudya-promtail
+    hostname: promtail
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.70
+    volumes:
+      - ./promtail/config:/etc/promtail:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    environment:
+      - TZ=UTC
+    command:
+      - '-config.file=/etc/promtail/promtail.yml'
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  # Redis for caching and session storage
+  redis:
+    image: redis:7.4.0-alpine
+    container_name: cloudya-monitoring-redis
+    hostname: redis
+    restart: unless-stopped
+    networks:
+      monitoring:
+        ipv4_address: 172.21.0.80
+    ports:
+      - "6379:6379"
+    volumes:
+      - /opt/cloudya-data/monitoring/redis:/data
+    environment:
+      - TZ=UTC
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --auto-aof-rewrite-percentage 100
+      --auto-aof-rewrite-min-size 64mb
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --timeout 300
+      --tcp-keepalive 60
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# External networks to connect to main infrastructure
+networks:
+  default:
+    name: cloudya-monitoring
+    external: false

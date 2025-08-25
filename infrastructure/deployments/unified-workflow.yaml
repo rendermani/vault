@@ -1,0 +1,216 @@
+---
+# Unified Infrastructure Deployment Workflow
+# Coordinates deployment across all environments with proper orchestration
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unified-infrastructure-workflow
+  namespace: infrastructure
+
+data:
+  workflow.yaml: |
+    name: "Enterprise Infrastructure Deployment"
+    version: "1.0.0"
+    
+    stages:
+      - name: "preparation"
+        description: "Prepare infrastructure environment"
+        timeout: "10m"
+        tasks:
+          - name: "validate-environment"
+            type: "validation"
+            script: "scripts/validate-environment.sh"
+            
+          - name: "setup-directories"
+            type: "setup"
+            script: "scripts/setup-directories.sh"
+            
+          - name: "configure-networking"
+            type: "network"
+            script: "scripts/setup-networking.sh"
+      
+      - name: "vault-deployment"
+        description: "Deploy HashiCorp Vault cluster"
+        timeout: "15m"
+        depends_on: ["preparation"]
+        tasks:
+          - name: "deploy-vault-cluster"
+            type: "deployment"
+            script: "repositories/vault/deploy.sh"
+            environment_vars:
+              VAULT_ENVIRONMENT: "${ENVIRONMENT}"
+              VAULT_REPLICAS: "${VAULT_REPLICAS}"
+              
+          - name: "initialize-vault"
+            type: "initialization"
+            script: "scripts/initialize-vault.sh"
+            
+          - name: "setup-vault-policies"
+            type: "configuration"
+            script: "scripts/setup-vault-policies.sh"
+            
+          - name: "health-check-vault"
+            type: "validation"
+            script: "scripts/health-check-vault.sh"
+            retry_count: 5
+            retry_delay: "30s"
+      
+      - name: "nomad-deployment"
+        description: "Deploy HashiCorp Nomad cluster"
+        timeout: "15m"
+        depends_on: ["vault-deployment"]
+        tasks:
+          - name: "setup-vault-integration"
+            type: "integration"
+            script: "scripts/setup-vault-nomad-integration.sh"
+            
+          - name: "deploy-nomad-cluster"
+            type: "deployment"
+            script: "repositories/nomad/deploy.sh"
+            environment_vars:
+              NOMAD_ENVIRONMENT: "${ENVIRONMENT}"
+              NOMAD_REPLICAS: "${NOMAD_REPLICAS}"
+              
+          - name: "bootstrap-nomad-acls"
+            type: "security"
+            script: "scripts/bootstrap-nomad-acls.sh"
+            
+          - name: "health-check-nomad"
+            type: "validation"
+            script: "scripts/health-check-nomad.sh"
+            retry_count: 5
+            retry_delay: "30s"
+      
+      - name: "traefik-deployment"
+        description: "Deploy Traefik load balancer"
+        timeout: "10m"
+        depends_on: ["nomad-deployment"]
+        tasks:
+          - name: "setup-traefik-secrets"
+            type: "secret-management"
+            script: "scripts/setup-traefik-secrets.sh"
+            
+          - name: "deploy-traefik"
+            type: "deployment"
+            script: "repositories/traefik/deploy.sh"
+            environment_vars:
+              TRAEFIK_ENVIRONMENT: "${ENVIRONMENT}"
+              
+          - name: "configure-routing"
+            type: "configuration"
+            script: "scripts/configure-traefik-routing.sh"
+            
+          - name: "health-check-traefik"
+            type: "validation"
+            script: "scripts/health-check-traefik.sh"
+            retry_count: 3
+            retry_delay: "20s"
+      
+      - name: "integration-testing"
+        description: "Run integration tests across all services"
+        timeout: "20m"
+        depends_on: ["traefik-deployment"]
+        tasks:
+          - name: "vault-integration-tests"
+            type: "testing"
+            script: "tests/vault-integration-tests.sh"
+            
+          - name: "nomad-integration-tests"
+            type: "testing"
+            script: "tests/nomad-integration-tests.sh"
+            
+          - name: "traefik-integration-tests"
+            type: "testing"
+            script: "tests/traefik-integration-tests.sh"
+            
+          - name: "end-to-end-tests"
+            type: "testing"
+            script: "tests/end-to-end-tests.sh"
+            
+          - name: "security-validation"
+            type: "security-testing"
+            script: "tests/security-validation.sh"
+            
+          - name: "performance-baseline"
+            type: "performance-testing"
+            script: "tests/performance-baseline.sh"
+      
+      - name: "monitoring-setup"
+        description: "Configure monitoring and alerting"
+        timeout: "10m"
+        depends_on: ["integration-testing"]
+        tasks:
+          - name: "deploy-prometheus"
+            type: "monitoring"
+            script: "monitoring/deploy-prometheus.sh"
+            
+          - name: "deploy-grafana"
+            type: "monitoring"
+            script: "monitoring/deploy-grafana.sh"
+            
+          - name: "configure-alerts"
+            type: "alerting"
+            script: "monitoring/configure-alerts.sh"
+            
+          - name: "validate-monitoring"
+            type: "validation"
+            script: "monitoring/validate-monitoring.sh"
+    
+    rollback_strategy:
+      - name: "rollback-traefik"
+        condition: "traefik-deployment.failed"
+        script: "scripts/rollback-traefik.sh"
+        
+      - name: "rollback-nomad"
+        condition: "nomad-deployment.failed"
+        script: "scripts/rollback-nomad.sh"
+        
+      - name: "rollback-vault"
+        condition: "vault-deployment.failed"
+        script: "scripts/rollback-vault.sh"
+    
+    environment_configs:
+      develop:
+        vault_replicas: 1
+        nomad_replicas: 1
+        traefik_replicas: 1
+        monitoring_enabled: true
+        debug_mode: true
+        
+      staging:
+        vault_replicas: 3
+        nomad_replicas: 3
+        traefik_replicas: 2
+        monitoring_enabled: true
+        debug_mode: false
+        
+      production:
+        vault_replicas: 5
+        nomad_replicas: 5
+        traefik_replicas: 3
+        monitoring_enabled: true
+        debug_mode: false
+        backup_enabled: true
+        
+    notification_channels:
+      - type: "slack"
+        webhook: "${SLACK_WEBHOOK_URL}"
+        events: ["deployment_start", "deployment_complete", "deployment_failed"]
+        
+      - type: "email"
+        recipients: ["infrastructure-team@cloudya.com"]
+        events: ["deployment_failed", "rollback_triggered"]
+        
+    monitoring_endpoints:
+      vault: "http://localhost:8200/v1/sys/health"
+      nomad: "http://localhost:4646/v1/status/leader" 
+      traefik: "http://localhost:8080/ping"
+      
+    security_checklist:
+      - "TLS certificates configured"
+      - "ACLs properly configured"
+      - "Secrets properly stored in Vault"
+      - "Network policies applied"
+      - "Audit logging enabled"
+      - "Resource quotas configured"

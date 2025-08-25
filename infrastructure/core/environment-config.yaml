@@ -1,0 +1,106 @@
+---
+# Environment-specific configuration for infrastructure deployment
+
+environments:
+  develop:
+    vault:
+      replicas: 1
+      storage: "file"
+      ui_enabled: true
+      dev_mode: true
+      seal_type: "shamir"
+      
+    nomad:
+      replicas: 1
+      datacenter: "dc1-dev"
+      bootstrap_expect: 1
+      dev_mode: true
+      
+    traefik:
+      replicas: 1
+      dashboard_enabled: true
+      api_insecure: true
+      log_level: "DEBUG"
+
+  staging:
+    vault:
+      replicas: 3
+      storage: "consul"
+      ui_enabled: true
+      dev_mode: false
+      seal_type: "auto"
+      ha_enabled: true
+      
+    nomad:
+      replicas: 3
+      datacenter: "dc1-staging"
+      bootstrap_expect: 3
+      dev_mode: false
+      
+    traefik:
+      replicas: 2
+      dashboard_enabled: true
+      api_insecure: false
+      log_level: "INFO"
+      tls_enabled: true
+
+  production:
+    vault:
+      replicas: 5
+      storage: "consul"
+      ui_enabled: false
+      dev_mode: false
+      seal_type: "auto"
+      ha_enabled: true
+      performance_standby: true
+      
+    nomad:
+      replicas: 5
+      datacenter: "dc1-prod"
+      bootstrap_expect: 5
+      dev_mode: false
+      
+    traefik:
+      replicas: 3
+      dashboard_enabled: false
+      api_insecure: false
+      log_level: "WARN"
+      tls_enabled: true
+      waf_enabled: true
+
+network_topology:
+  develop:
+    subnets:
+      - "10.0.1.0/24"
+    load_balancer: "internal"
+    
+  staging:
+    subnets:
+      - "10.1.1.0/24"
+      - "10.1.2.0/24"
+    load_balancer: "external"
+    
+  production:
+    subnets:
+      - "10.2.1.0/24"
+      - "10.2.2.0/24" 
+      - "10.2.3.0/24"
+    load_balancer: "external"
+    cdn_enabled: true
+
+security_profiles:
+  develop:
+    tls_enforcement: "optional"
+    audit_logging: "basic"
+    secret_rotation: "manual"
+    
+  staging:
+    tls_enforcement: "required"
+    audit_logging: "detailed"
+    secret_rotation: "automated"
+    
+  production:
+    tls_enforcement: "strict"
+    audit_logging: "comprehensive"
+    secret_rotation: "automated"
+    compliance_scanning: true
