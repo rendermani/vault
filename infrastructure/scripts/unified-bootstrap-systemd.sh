@@ -433,6 +433,10 @@ deploy_nomad() {
     # Set environment variables to ensure Vault is disabled during bootstrap
     export VAULT_ENABLED="false"
     export NOMAD_VAULT_BOOTSTRAP_PHASE="true"
+    export BOOTSTRAP_PHASE="true"
+    
+    # Pass bootstrap phase to service management and config templates
+    log_debug "Bootstrap phase variables set: VAULT_ENABLED=$VAULT_ENABLED, NOMAD_VAULT_BOOTSTRAP_PHASE=$NOMAD_VAULT_BOOTSTRAP_PHASE, BOOTSTRAP_PHASE=$BOOTSTRAP_PHASE"
     
     # Use the service management script for installation
     log_step "Installing and starting HashiCorp services (Vault disabled)..."
@@ -440,9 +444,9 @@ deploy_nomad() {
         # Make service management script executable
         chmod +x "$SCRIPT_DIR/manage-services.sh"
         
-        # Run the service management script
+        # Run the service management script with bootstrap environment variables
         if [[ -x "$SCRIPT_DIR/manage-services.sh" ]]; then
-            bash "$SCRIPT_DIR/manage-services.sh" install
+            VAULT_ENABLED="$VAULT_ENABLED" NOMAD_VAULT_BOOTSTRAP_PHASE="$NOMAD_VAULT_BOOTSTRAP_PHASE" BOOTSTRAP_PHASE="$BOOTSTRAP_PHASE" bash "$SCRIPT_DIR/manage-services.sh" install
             log_success "HashiCorp services installed and started"
         else
             log_error "Service management script not found or not executable: $SCRIPT_DIR/manage-services.sh"

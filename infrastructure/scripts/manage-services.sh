@@ -179,26 +179,45 @@ create_directories() {
 install_configurations() {
     log_info "Installing service configurations..."
     
-    # Install Consul configuration
-    if [[ -f "$INFRA_DIR/config/consul.hcl" ]]; then
-        cp "$INFRA_DIR/config/consul.hcl" /opt/consul/config/
-        chown "$CONSUL_USER:$CONSUL_USER" /opt/consul/config/consul.hcl
-        chmod 640 /opt/consul/config/consul.hcl
-        log_success "Consul configuration installed"
+    # Source config templates for dynamic generation
+    if [[ -f "$SCRIPT_DIR/config-templates.sh" ]]; then
+        source "$SCRIPT_DIR/config-templates.sh"
+        log_debug "Loaded configuration templates"
     else
-        log_error "Consul configuration not found: $INFRA_DIR/config/consul.hcl"
+        log_error "config-templates.sh not found: $SCRIPT_DIR/config-templates.sh"
         exit 1
     fi
     
-    # Install Nomad configuration
-    if [[ -f "$INFRA_DIR/config/nomad.hcl" ]]; then
-        cp "$INFRA_DIR/config/nomad.hcl" /opt/nomad/config/
-        chown "$NOMAD_USER:$NOMAD_USER" /opt/nomad/config/nomad.hcl
-        chmod 640 /opt/nomad/config/nomad.hcl
-        log_success "Nomad configuration installed"
-    else
-        log_error "Nomad configuration not found: $INFRA_DIR/config/nomad.hcl"
-        exit 1
+    # Generate and install Consul configuration
+    mkdir -p /opt/consul/config
+    log_info "Generating Consul configuration..."
+    generate_consul_config "develop" "dc1" "/opt/consul/data" "/opt/consul/config" "/var/log/consul" "server" "$(openssl rand -base64 24)" > /opt/consul/config/consul.hcl
+    chown "$CONSUL_USER:$CONSUL_USER" /opt/consul/config/consul.hcl
+    chmod 640 /opt/consul/config/consul.hcl
+    log_success "Consul configuration generated and installed"
+    
+    # Generate and install Nomad configuration with bootstrap phase awareness
+    mkdir -p /opt/nomad/config
+    log_info "Generating Nomad configuration..."
+    
+    # Respect bootstrap phase environment variables
+    local vault_enabled="${VAULT_ENABLED:-false}"
+    local bootstrap_phase="${BOOTSTRAP_PHASE:-false}"
+    local nomad_vault_bootstrap_phase="${NOMAD_VAULT_BOOTSTRAP_PHASE:-false}"
+    
+    log_debug "Bootstrap configuration: VAULT_ENABLED=$vault_enabled, BOOTSTRAP_PHASE=$bootstrap_phase, NOMAD_VAULT_BOOTSTRAP_PHASE=$nomad_vault_bootstrap_phase"
+    
+    # Generate Nomad config with proper bootstrap phase handling
+    generate_nomad_config "develop" "dc1" "global" "/opt/nomad/data" "/opt/nomad/plugins" "/var/log/nomad" \
+        "both" "$(openssl rand -base64 24)" "0.0.0.0" "" "1" "true" "127.0.0.1:8500" \
+        "$vault_enabled" "http://localhost:8200" "$nomad_vault_bootstrap_phase" > /opt/nomad/config/nomad.hcl
+    
+    chown "$NOMAD_USER:$NOMAD_USER" /opt/nomad/config/nomad.hcl
+    chmod 640 /opt/nomad/config/nomad.hcl
+    log_success "Nomad configuration generated and installed"
+    
+    if [[ "$bootstrap_phase" == "true" ]]; then
+        log_warning "Bootstrap phase active: Vault integration disabled in Nomad configuration"
     fi
 }
 

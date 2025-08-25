@@ -382,6 +382,7 @@ jobs:
           echo "DEPLOY_VAULT=${{ needs.prepare-deployment.outputs.deploy-vault }}" >> deployment.env
           echo "DEPLOY_TRAEFIK=${{ needs.prepare-deployment.outputs.deploy-traefik }}" >> deployment.env
           echo "IS_BOOTSTRAP=${{ needs.prepare-deployment.outputs.is-bootstrap }}" >> deployment.env
+          echo "BOOTSTRAP_PHASE=${{ needs.prepare-deployment.outputs.is-bootstrap }}" >> deployment.env
           echo "DRY_RUN=${{ github.event.inputs.dry_run || 'false' }}" >> deployment.env
           echo "FORCE_BOOTSTRAP=${{ github.event.inputs.force_bootstrap || 'false' }}" >> deployment.env
           echo "COMPONENTS=${{ github.event.inputs.components || 'all' }}" >> deployment.env

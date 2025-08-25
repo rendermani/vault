@@ -48,6 +48,21 @@ on:
         required: false
         type: boolean
         default: false
+      enable_rollback:
+        description: 'Enable rollback system integration'
+        required: false
+        type: boolean
+        default: true
+      rollback_checkpoint:
+        description: 'Rollback to specific checkpoint (if provided, skips deployment)'
+        required: false
+        type: string
+        default: ''
+      checkpoint_name:
+        description: 'Custom name for rollback checkpoint'
+        required: false
+        type: string
+        default: ''
 
 env:
   # Remote server configuration
@@ -120,6 +135,10 @@ jobs:
       is-bootstrap: ${{ steps.determine-strategy.outputs.is-bootstrap }}
       vault-addr: ${{ steps.determine-env.outputs.vault-addr }}
       nomad-addr: ${{ steps.determine-env.outputs.nomad-addr }}
+      rollback-mode: ${{ steps.determine-rollback.outputs.rollback-mode }}
+      rollback-checkpoint: ${{ steps.determine-rollback.outputs.rollback-checkpoint }}
+      enable-rollback: ${{ steps.determine-rollback.outputs.enable-rollback }}
+      checkpoint-name: ${{ steps.determine-rollback.outputs.checkpoint-name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -210,6 +229,24 @@ jobs:
           echo "is-bootstrap=$IS_BOOTSTRAP" >> $GITHUB_OUTPUT
           echo "Bootstrap deployment to ${{ env.REMOTE_SERVER }}: $IS_BOOTSTRAP"
 
+      - name: Determine rollback strategy
+        id: determine-rollback
+        run: |
+          # Check if this is a rollback operation
+          if [[ -n "${{ github.event.inputs.rollback_checkpoint }}" ]]; then
+            echo "rollback-mode=true" >> $GITHUB_OUTPUT
+            echo "rollback-checkpoint=${{ github.event.inputs.rollback_checkpoint }}" >> $GITHUB_OUTPUT
+            echo "enable-rollback=true" >> $GITHUB_OUTPUT
+            echo "checkpoint-name=" >> $GITHUB_OUTPUT
+            echo "Rollback mode: Rolling back to checkpoint ${{ github.event.inputs.rollback_checkpoint }}"
+          else
+            echo "rollback-mode=false" >> $GITHUB_OUTPUT
+            echo "rollback-checkpoint=" >> $GITHUB_OUTPUT
+            echo "enable-rollback=${{ github.event.inputs.enable_rollback || 'true' }}" >> $GITHUB_OUTPUT
+            echo "checkpoint-name=${{ github.event.inputs.checkpoint_name }}" >> $GITHUB_OUTPUT
+            echo "Normal deployment mode with rollback system enabled: ${{ github.event.inputs.enable_rollback || 'true' }}"
+          fi
+
   # Job 3: Setup SSH connection and prepare remote server
   setup-remote-server:
     runs-on: ubuntu-latest
@@ -286,6 +323,23 @@ jobs:
             echo "Remote server preparation completed successfully"
           EOF
 
+      - name: Transfer rollback manager
+        run: |
+          echo "Ensuring rollback manager is available on remote server..."
+          # The rollback manager will be transferred with the infrastructure code
+          # but we want to make sure it's executable
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            # Create rollback directories
+            mkdir -p /var/rollback/cloudya/{checkpoints,temp,logs}
+            mkdir -p /var/log/cloudya
+            
+            # Set proper permissions for rollback system
+            chmod 700 /var/rollback/cloudya
+            chmod 755 /var/log/cloudya
+            
+            echo "Rollback directories prepared"
+          EOF
+
       - name: Transfer infrastructure code
         run: |
           echo "Transferring infrastructure code to remote server..."
@@ -309,11 +363,134 @@ jobs:
             echo "Infrastructure code transferred and extracted successfully"
           EOF
 
-  # Job 4: Deploy infrastructure to remote server
+  # Job 4: Perform rollback operation (if requested)
+  perform-rollback:
+    runs-on: ubuntu-latest
+    needs: [prepare-deployment, setup-remote-server]
+    if: needs.prepare-deployment.outputs.rollback-mode == 'true'
+    environment: ${{ needs.prepare-deployment.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Execute rollback operation
+        run: |
+          echo "Executing rollback to checkpoint: ${{ needs.prepare-deployment.outputs.rollback-checkpoint }}"
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'ROLLBACK_SCRIPT'
+            set -euo pipefail
+            cd /opt/infrastructure
+            
+            echo "Starting rollback operation..."
+            echo "  Target checkpoint: ${{ needs.prepare-deployment.outputs.rollback-checkpoint }}"
+            echo "  Environment: ${{ needs.prepare-deployment.outputs.environment }}"
+            
+            # Make rollback manager executable
+            chmod +x scripts/rollback-manager.sh
+            
+            # List available checkpoints
+            echo ""
+            echo "=== Available Checkpoints ==="
+            ./scripts/rollback-manager.sh list
+            
+            # Verify checkpoint exists
+            echo ""
+            echo "=== Verifying Checkpoint ==="
+            if ./scripts/rollback-manager.sh verify "${{ needs.prepare-deployment.outputs.rollback-checkpoint }}"; then
+              echo "Checkpoint verification passed"
+            else
+              echo "Checkpoint verification failed - aborting rollback"
+              exit 1
+            fi
+            
+            # Perform rollback
+            echo ""
+            echo "=== Performing Rollback ==="
+            ./scripts/rollback-manager.sh rollback "${{ needs.prepare-deployment.outputs.rollback-checkpoint }}"
+            
+            echo "Rollback operation completed"
+          ROLLBACK_SCRIPT
+
+      - name: Validate rollback
+        run: |
+          echo "Validating rollback operation..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'ROLLBACK_VALIDATION'
+            set -euo pipefail
+            cd /opt/infrastructure
+            
+            echo "Checking service status after rollback..."
+            
+            # Wait for services to stabilize
+            sleep 15
+            
+            # Check service health
+            echo ""
+            echo "=== Service Status After Rollback ==="
+            ./scripts/manage-services.sh status || true
+            
+            # Basic health checks
+            if systemctl is-active --quiet consul 2>/dev/null; then
+              echo "✓ Consul service is active"
+              curl -s http://localhost:8500/v1/status/leader > /dev/null 2>&1 && echo "✓ Consul API responding" || echo "⚠ Consul API not responding"
+            else
+              echo "⚠ Consul service is not active"
+            fi
+            
+            if systemctl is-active --quiet nomad 2>/dev/null; then
+              echo "✓ Nomad service is active"
+              curl -s http://localhost:4646/v1/status/leader > /dev/null 2>&1 && echo "✓ Nomad API responding" || echo "⚠ Nomad API not responding"
+            else
+              echo "⚠ Nomad service is not active"
+            fi
+            
+            echo ""
+            echo "=== Rollback Validation Complete ==="
+          ROLLBACK_VALIDATION
+
+      - name: Generate rollback summary
+        if: always()
+        run: |
+          echo "## Rollback Operation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Remote Server: ${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.prepare-deployment.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Target Checkpoint: ${{ needs.prepare-deployment.outputs.rollback-checkpoint }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Operation: System Rollback" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ **Rollback completed successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The system has been restored to the state captured in the specified checkpoint." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Rollback operation failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The rollback operation encountered errors. Manual intervention may be required." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Post-Rollback Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Check rollback system status" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/rollback-manager.sh status'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# List all checkpoints" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/rollback-manager.sh list'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/manage-services.sh status'" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # Job 5: Deploy infrastructure to remote server
   deploy-infrastructure:
     runs-on: ubuntu-latest
     needs: [prepare-deployment, setup-remote-server]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.prepare-deployment.outputs.rollback-mode != 'true'
     environment: ${{ needs.prepare-deployment.outputs.environment }}
     steps:
       - name: Checkout repository
@@ -337,6 +514,8 @@ jobs:
           echo "DRY_RUN=${{ github.event.inputs.dry_run || 'false' }}" >> deployment.env
           echo "FORCE_BOOTSTRAP=${{ github.event.inputs.force_bootstrap || 'false' }}" >> deployment.env
           echo "COMPONENTS=${{ github.event.inputs.components || 'all' }}" >> deployment.env
+          echo "ENABLE_ROLLBACK=${{ needs.prepare-deployment.outputs.enable-rollback }}" >> deployment.env
+          echo "CHECKPOINT_NAME=${{ needs.prepare-deployment.outputs.checkpoint-name }}" >> deployment.env
 
       - name: Transfer deployment configuration
         run: |
@@ -370,15 +549,12 @@ jobs:
             # Make deployment scripts executable
             chmod +x scripts/unified-bootstrap-systemd.sh
             chmod +x scripts/manage-services.sh
+            chmod +x scripts/rollback-manager.sh
             
             # Execute deployment based on configuration using the systemd version
             if [[ "$DRY_RUN" == "true" ]]; then
               echo "Performing dry run deployment..."
-              ./scripts/unified-bootstrap-systemd.sh \
-                --environment "$ENVIRONMENT" \
-                --components "$COMPONENTS" \
-                --dry-run \
-                --verbose
+              deployment_args=("--environment" "$ENVIRONMENT" "--components" "$COMPONENTS" "--dry-run" "--verbose")
             else
               echo "Performing actual deployment..."
               deployment_args=("--environment" "$ENVIRONMENT" "--components" "$COMPONENTS" "--verbose")
@@ -386,9 +562,19 @@ jobs:
               if [[ "$FORCE_BOOTSTRAP" == "true" ]]; then
                 deployment_args+=("--force-bootstrap")
               fi
-              
-              ./scripts/unified-bootstrap-systemd.sh "${deployment_args[@]}"
             fi
+            
+            # Add rollback configuration
+            if [[ "$ENABLE_ROLLBACK" == "false" ]]; then
+              deployment_args+=("--no-rollback")
+            fi
+            
+            if [[ -n "$CHECKPOINT_NAME" ]]; then
+              deployment_args+=("--checkpoint-name" "$CHECKPOINT_NAME")
+            fi
+            
+            # Execute deployment
+            ./scripts/unified-bootstrap-systemd.sh "${deployment_args[@]}"
             
             echo "Remote deployment completed successfully"
           REMOTE_SCRIPT
@@ -524,6 +710,7 @@ jobs:
           echo "### Bootstrap: ${{ needs.prepare-deployment.outputs.is-bootstrap }}" >> $GITHUB_STEP_SUMMARY
           echo "### Dry Run: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
           echo "### Service Management: Systemd (Native Services)" >> $GITHUB_STEP_SUMMARY
+          echo "### Rollback System: ${{ needs.prepare-deployment.outputs.enable-rollback }}" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ github.event.inputs.dry_run || 'false' }}" != "true" ]]; then
             echo "### Access URLs (via SSH tunnel):" >> $GITHUB_STEP_SUMMARY
@@ -549,4 +736,22 @@ jobs:
             echo "# Health check" >> $GITHUB_STEP_SUMMARY
             echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/manage-services.sh health'" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            if [[ "${{ needs.prepare-deployment.outputs.enable-rollback }}" == "true" ]]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### Rollback Commands:" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+              echo "# List available checkpoints" >> $GITHUB_STEP_SUMMARY
+              echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/rollback-manager.sh list'" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "# Check rollback system status" >> $GITHUB_STEP_SUMMARY
+              echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/rollback-manager.sh status'" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "# Perform manual rollback (replace CHECKPOINT_ID with actual ID)" >> $GITHUB_STEP_SUMMARY
+              echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} 'cd /opt/infrastructure && ./scripts/rollback-manager.sh rollback CHECKPOINT_ID'" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### Automated Rollback via Workflow:" >> $GITHUB_STEP_SUMMARY
+              echo "You can also trigger a rollback through GitHub Actions by running this workflow with the 'rollback_checkpoint' parameter." >> $GITHUB_STEP_SUMMARY
+            fi
           fi
