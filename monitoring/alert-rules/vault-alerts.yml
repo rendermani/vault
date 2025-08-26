@@ -1,0 +1,238 @@
+# Vault Alert Rules for Prometheus
+groups:
+  - name: vault.critical
+    interval: 30s
+    rules:
+      # Vault instance is sealed
+      - alert: VaultSealed
+        expr: vault_core_unsealed == 0
+        for: 0m
+        labels:
+          severity: critical
+          service: vault
+          team: security
+        annotations:
+          summary: "Vault instance {{ $labels.instance }} is sealed"
+          description: "Vault instance {{ $labels.instance }} has been sealed for more than 0 minutes. Immediate action required."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/sealed-instance"
+          dashboard_url: "https://grafana.cloudya.net/d/vault-operations"
+
+      # Vault instance is down
+      - alert: VaultDown
+        expr: up{job="vault"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: vault
+          team: security
+        annotations:
+          summary: "Vault instance {{ $labels.instance }} is down"
+          description: "Vault instance {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/instance-down"
+
+      # No Vault leader
+      - alert: VaultNoLeader
+        expr: count(vault_core_active == 1) == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: vault
+          team: security
+        annotations:
+          summary: "Vault cluster has no active leader"
+          description: "Vault cluster has been without an active leader for more than 1 minute."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/no-leader"
+
+      # High API error rate
+      - alert: VaultHighErrorRate
+        expr: rate(vault_route_count{code!~"2.."}[5m]) / rate(vault_route_count[5m]) * 100 > 10
+        for: 5m
+        labels:
+          severity: critical
+          service: vault
+          team: security
+        annotations:
+          summary: "High error rate in Vault API"
+          description: "Vault instance {{ $labels.instance }} has an error rate of {{ $value }}% over the last 5 minutes."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/high-error-rate"
+
+  - name: vault.warning
+    interval: 60s
+    rules:
+      # High request latency
+      - alert: VaultHighLatency
+        expr: histogram_quantile(0.95, sum(rate(vault_barrier_get_duration_bucket[5m])) by (le, instance)) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: vault
+          team: security
+        annotations:
+          summary: "High request latency in Vault"
+          description: "Vault instance {{ $labels.instance }} has P95 latency of {{ $value }}ms for GET operations."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/high-latency"
+
+      # High memory usage
+      - alert: VaultHighMemoryUsage
+        expr: vault_runtime_alloc_bytes / 1024 / 1024 / 1024 > 4
+        for: 10m
+        labels:
+          severity: warning
+          service: vault
+          team: security
+        annotations:
+          summary: "High memory usage in Vault"
+          description: "Vault instance {{ $labels.instance }} is using {{ $value }}GB of memory."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/high-memory"
+
+      # Raft leadership changes
+      - alert: VaultLeadershipChanges
+        expr: increase(vault_core_leadership_lost_count[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: vault
+          team: security
+        annotations:
+          summary: "Vault leadership changes detected"
+          description: "Vault has had {{ $value }} leadership changes in the last hour."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/leadership-changes"
+
+      # High storage backend latency
+      - alert: VaultHighStorageLatency
+        expr: histogram_quantile(0.99, sum(rate(vault_raft_commitTime_bucket[5m])) by (le, instance)) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: vault
+          team: security
+        annotations:
+          summary: "High Raft commit latency in Vault"
+          description: "Vault instance {{ $labels.instance }} has P99 Raft commit time of {{ $value }}ms."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/high-storage-latency"
+
+  - name: vault.security
+    interval: 60s
+    rules:
+      # Certificate expiration warning
+      - alert: VaultCertificateExpiring
+        expr: (vault_pki_certificate_expiry_time - time()) / 86400 < 30
+        for: 0m
+        labels:
+          severity: warning
+          service: vault
+          team: security
+        annotations:
+          summary: "Vault certificate expiring soon"
+          description: "Certificate {{ $labels.certificate }} will expire in {{ $value }} days."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/certificate-expiring"
+
+      # Certificate expired
+      - alert: VaultCertificateExpired
+        expr: (vault_pki_certificate_expiry_time - time()) < 0
+        for: 0m
+        labels:
+          severity: critical
+          service: vault
+          team: security
+        annotations:
+          summary: "Vault certificate has expired"
+          description: "Certificate {{ $labels.certificate }} has expired."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/certificate-expired"
+
+      # Authentication failures spike
+      - alert: VaultAuthFailureSpike
+        expr: rate(vault_route_count{code="403"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: vault
+          team: security
+        annotations:
+          summary: "High authentication failure rate in Vault"
+          description: "Vault instance {{ $labels.instance }} has {{ $value }} authentication failures per second."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/auth-failures"
+
+      # Token expiration rate anomaly
+      - alert: VaultTokenExpirationAnomaly
+        expr: rate(vault_expire_lease_expiration_count[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: vault
+          team: security
+        annotations:
+          summary: "Unusual token expiration rate in Vault"
+          description: "Vault instance {{ $labels.instance }} has {{ $value }} token expirations per second."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/token-expiration-anomaly"
+
+  - name: vault.performance
+    interval: 60s
+    rules:
+      # High request rate
+      - alert: VaultHighRequestRate
+        expr: rate(vault_barrier_get_count[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: vault
+          team: operations
+        annotations:
+          summary: "High request rate in Vault"
+          description: "Vault instance {{ $labels.instance }} is handling {{ $value }} requests per second."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/high-request-rate"
+
+      # Low disk space
+      - alert: VaultLowDiskSpace
+        expr: (node_filesystem_avail_bytes{job="node-exporter",mountpoint="/"} / node_filesystem_size_bytes{job="node-exporter",mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          service: vault
+          team: infrastructure
+        annotations:
+          summary: "Low disk space on Vault server"
+          description: "Vault server {{ $labels.instance }} has only {{ $value }}% disk space remaining."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/low-disk-space"
+
+      # Goroutine leak detection
+      - alert: VaultGoroutineLeak
+        expr: vault_runtime_num_goroutines > 10000
+        for: 10m
+        labels:
+          severity: warning
+          service: vault
+          team: operations
+        annotations:
+          summary: "Potential goroutine leak in Vault"
+          description: "Vault instance {{ $labels.instance }} has {{ $value }} goroutines running."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/goroutine-leak"
+
+  - name: vault.backup
+    interval: 300s
+    rules:
+      # Backup job failure
+      - alert: VaultBackupFailure
+        expr: time() - vault_backup_last_success_timestamp > 86400
+        for: 0m
+        labels:
+          severity: critical
+          service: vault
+          team: operations
+        annotations:
+          summary: "Vault backup has failed"
+          description: "Vault backup job has not succeeded for more than 24 hours."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/backup-failure"
+
+      # Backup age warning
+      - alert: VaultBackupAge
+        expr: time() - vault_backup_last_success_timestamp > 43200
+        for: 0m
+        labels:
+          severity: warning
+          service: vault
+          team: operations
+        annotations:
+          summary: "Vault backup is old"
+          description: "Last successful Vault backup was {{ $value | humanizeDuration }} ago."
+          runbook_url: "https://docs.cloudya.net/runbooks/vault/backup-age"

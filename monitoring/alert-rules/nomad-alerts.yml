@@ -1,0 +1,264 @@
+# Nomad Alert Rules for Prometheus
+groups:
+  - name: nomad.critical
+    interval: 30s
+    rules:
+      # Nomad server is down
+      - alert: NomadServerDown
+        expr: up{job="nomad-servers"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Nomad server {{ $labels.instance }} is down"
+          description: "Nomad server {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/server-down"
+          dashboard_url: "https://grafana.cloudya.net/d/nomad-cluster"
+
+      # Nomad cluster has no leader
+      - alert: NomadNoLeader
+        expr: count(nomad_raft_leader == 1) == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Nomad cluster has no leader"
+          description: "Nomad cluster has been without a leader for more than 1 minute."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/no-leader"
+
+      # Too few Nomad servers
+      - alert: NomadTooFewServers
+        expr: count(nomad_serf_member_status{status="alive"}) < 3
+        for: 5m
+        labels:
+          severity: critical
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Too few Nomad servers running"
+          description: "Only {{ $value }} Nomad servers are alive. Minimum of 3 required for HA."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/too-few-servers"
+
+      # Nomad client disconnect rate too high
+      - alert: NomadHighClientDisconnectRate
+        expr: rate(nomad_client_disconnected[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: nomad
+          team: platform
+        annotations:
+          summary: "High Nomad client disconnect rate"
+          description: "Nomad client disconnect rate is {{ $value }} per second."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/high-disconnect-rate"
+
+  - name: nomad.warning
+    interval: 60s
+    rules:
+      # High job failure rate
+      - alert: NomadHighJobFailureRate
+        expr: rate(nomad_client_allocations_failed[5m]) / rate(nomad_client_allocations_start[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "High job failure rate in Nomad"
+          description: "Job failure rate is {{ $value | humanizePercentage }} on {{ $labels.node }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/high-failure-rate"
+
+      # High resource utilization
+      - alert: NomadHighCPUUtilization
+        expr: (nomad_client_allocated_cpu / (nomad_client_allocated_cpu + nomad_client_unallocated_cpu)) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "High CPU utilization on Nomad client"
+          description: "CPU utilization is {{ $value }}% on Nomad client {{ $labels.node }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/high-cpu"
+
+      # High memory utilization
+      - alert: NomadHighMemoryUtilization
+        expr: (nomad_client_allocated_memory / (nomad_client_allocated_memory + nomad_client_unallocated_memory)) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "High memory utilization on Nomad client"
+          description: "Memory utilization is {{ $value }}% on Nomad client {{ $labels.node }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/high-memory"
+
+      # Scheduler queue depth high
+      - alert: NomadHighSchedulerQueue
+        expr: nomad_nomad_plan_queue_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "High scheduler queue depth in Nomad"
+          description: "Scheduler queue depth is {{ $value }} on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/high-scheduler-queue"
+
+      # Raft leadership changes
+      - alert: NomadLeadershipChanges
+        expr: increase(nomad_raft_leadership_transitions_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Nomad leadership changes detected"
+          description: "{{ $value }} leadership transitions occurred in the last hour."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/leadership-changes"
+
+      # High Raft commit latency
+      - alert: NomadHighRaftLatency
+        expr: histogram_quantile(0.95, sum(rate(nomad_raft_commitTime_bucket[5m])) by (le, instance)) > 200
+        for: 5m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "High Raft commit latency in Nomad"
+          description: "P95 Raft commit latency is {{ $value }}ms on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/high-raft-latency"
+
+  - name: nomad.performance
+    interval: 60s
+    rules:
+      # Job scheduling latency
+      - alert: NomadSlowJobScheduling
+        expr: histogram_quantile(0.95, sum(rate(nomad_nomad_plan_submit_duration_bucket[5m])) by (le, instance)) > 5000
+        for: 5m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Slow job scheduling in Nomad"
+          description: "P95 job scheduling latency is {{ $value }}ms on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/slow-scheduling"
+
+      # High RPC request rate
+      - alert: NomadHighRPCRate
+        expr: rate(nomad_nomad_rpc_query[5m]) > 1000
+        for: 10m
+        labels:
+          severity: info
+          service: nomad
+          team: platform
+        annotations:
+          summary: "High RPC request rate in Nomad"
+          description: "RPC request rate is {{ $value }} per second on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/high-rpc-rate"
+
+      # Allocation placement failures
+      - alert: NomadAllocationPlacementFailures
+        expr: increase(nomad_nomad_plan_queue_depth[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Allocation placement failures in Nomad"
+          description: "{{ $value }} allocation placement failures in the last 5 minutes."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/placement-failures"
+
+  - name: nomad.integration
+    interval: 60s
+    rules:
+      # Vault integration issues
+      - alert: NomadVaultIntegrationDown
+        expr: nomad_vault_token_lookup_failures > 10
+        for: 5m
+        labels:
+          severity: critical
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Nomad-Vault integration issues"
+          description: "{{ $value }} Vault token lookup failures on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/vault-integration"
+
+      # Consul integration issues
+      - alert: NomadConsulIntegrationDown
+        expr: nomad_consul_services == 0 and nomad_client_allocations_running > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Nomad-Consul integration issues"
+          description: "No services registered with Consul despite running allocations on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/consul-integration"
+
+      # CSI plugin failures
+      - alert: NomadCSIPluginFailure
+        expr: nomad_client_csi_plugin_unhealthy > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "CSI plugin unhealthy in Nomad"
+          description: "{{ $value }} CSI plugins are unhealthy on {{ $labels.node }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/csi-plugin-failure"
+
+  - name: nomad.capacity
+    interval: 300s
+    rules:
+      # Low capacity warning
+      - alert: NomadLowCapacity
+        expr: (sum(nomad_client_unallocated_cpu) / sum(nomad_client_allocated_cpu + nomad_client_unallocated_cpu)) * 100 < 20
+        for: 10m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Low CPU capacity in Nomad cluster"
+          description: "Only {{ $value }}% CPU capacity remaining in Nomad cluster."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/low-capacity"
+
+      # Memory capacity warning
+      - alert: NomadLowMemoryCapacity
+        expr: (sum(nomad_client_unallocated_memory) / sum(nomad_client_allocated_memory + nomad_client_unallocated_memory)) * 100 < 20
+        for: 10m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Low memory capacity in Nomad cluster"
+          description: "Only {{ $value }}% memory capacity remaining in Nomad cluster."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/low-memory-capacity"
+
+      # Node drain taking too long
+      - alert: NomadNodeDrainStuck
+        expr: nomad_client_allocations_terminal{client_status="complete"} == nomad_client_allocations_running and nomad_node_drain_eligible == 0
+        for: 30m
+        labels:
+          severity: warning
+          service: nomad
+          team: platform
+        annotations:
+          summary: "Node drain appears stuck"
+          description: "Node {{ $labels.node }} drain has been running for more than 30 minutes."
+          runbook_url: "https://docs.cloudya.net/runbooks/nomad/drain-stuck"

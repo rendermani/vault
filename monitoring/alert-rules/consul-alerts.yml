@@ -1,0 +1,333 @@
+# Consul Alert Rules for Prometheus
+groups:
+  - name: consul.critical
+    interval: 30s
+    rules:
+      # Consul agent is down
+      - alert: ConsulAgentDown
+        expr: up{job="consul"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: consul
+          team: platform
+        annotations:
+          summary: "Consul agent {{ $labels.instance }} is down"
+          description: "Consul agent {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/agent-down"
+          dashboard_url: "https://grafana.cloudya.net/d/consul-service-mesh"
+
+      # Consul cluster has no leader
+      - alert: ConsulNoLeader
+        expr: count(consul_raft_leader == 1) == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: consul
+          team: platform
+        annotations:
+          summary: "Consul cluster has no leader"
+          description: "Consul cluster has been without a leader for more than 1 minute."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/no-leader"
+
+      # Consul cluster partition (split-brain)
+      - alert: ConsulClusterPartition
+        expr: count(consul_raft_leader == 1) > 1
+        for: 0m
+        labels:
+          severity: critical
+          service: consul
+          team: platform
+        annotations:
+          summary: "Consul cluster partition detected"
+          description: "Multiple Consul leaders detected - possible network partition."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/cluster-partition"
+
+      # Too few Consul servers
+      - alert: ConsulTooFewServers
+        expr: count(consul_serf_member_status{status="alive"}) < 3
+        for: 5m
+        labels:
+          severity: critical
+          service: consul
+          team: platform
+        annotations:
+          summary: "Too few Consul servers running"
+          description: "Only {{ $value }} Consul servers are alive. Minimum of 3 required for HA."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/too-few-servers"
+
+  - name: consul.warning
+    interval: 60s
+    rules:
+      # High service check failure rate
+      - alert: ConsulHighCheckFailureRate
+        expr: rate(consul_health_service_query_tag{status="critical"}[5m]) / rate(consul_health_service_query_tag[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: consul
+          team: platform
+        annotations:
+          summary: "High service check failure rate"
+          description: "{{ $value | humanizePercentage }} of service checks are failing."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/high-check-failures"
+
+      # Raft leadership changes
+      - alert: ConsulLeadershipChanges
+        expr: increase(consul_raft_leadership_transitions_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: consul
+          team: platform
+        annotations:
+          summary: "Consul leadership changes detected"
+          description: "{{ $value }} leadership transitions occurred in the last hour on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/leadership-changes"
+
+      # High Raft commit latency
+      - alert: ConsulHighRaftLatency
+        expr: histogram_quantile(0.95, sum(rate(consul_raft_commitTime_bucket[5m])) by (le, instance)) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: consul
+          team: platform
+        annotations:
+          summary: "High Raft commit latency in Consul"
+          description: "P95 Raft commit latency is {{ $value }}ms on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/high-raft-latency"
+
+      # Serf member flapping
+      - alert: ConsulSerfMemberFlapping
+        expr: increase(consul_serf_member_flap[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: consul
+          team: platform
+        annotations:
+          summary: "Consul member flapping detected"
+          description: "Member {{ $labels.node }} has flapped {{ $value }} times in 5 minutes."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/member-flapping"
+
+      # High memory usage
+      - alert: ConsulHighMemoryUsage
+        expr: consul_runtime_alloc_bytes / 1024 / 1024 / 1024 > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: consul
+          team: platform
+        annotations:
+          summary: "High memory usage in Consul"
+          description: "Consul agent {{ $labels.instance }} is using {{ $value }}GB of memory."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/high-memory"
+
+  - name: consul.connect
+    interval: 60s
+    rules:
+      # Connect proxy error rate
+      - alert: ConsulConnectHighErrorRate
+        expr: (sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class=~"4xx|5xx"}[5m])) / sum(rate(envoy_cluster_upstream_rq_total[5m]))) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: consul
+          component: connect
+          team: platform
+        annotations:
+          summary: "High error rate in Consul Connect proxies"
+          description: "Connect proxy error rate is {{ $value }}% for cluster {{ $labels.envoy_cluster_name }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/connect-high-errors"
+
+      # Connect certificate expiring
+      - alert: ConsulConnectCertExpiring
+        expr: (consul_connect_ca_cert_expiry_seconds - time()) / 86400 < 30
+        for: 0m
+        labels:
+          severity: warning
+          service: consul
+          component: connect
+          team: security
+        annotations:
+          summary: "Consul Connect certificate expiring"
+          description: "Connect CA certificate will expire in {{ $value }} days."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/connect-cert-expiring"
+
+      # Connect certificate expired
+      - alert: ConsulConnectCertExpired
+        expr: (consul_connect_ca_cert_expiry_seconds - time()) < 0
+        for: 0m
+        labels:
+          severity: critical
+          service: consul
+          component: connect
+          team: security
+        annotations:
+          summary: "Consul Connect certificate expired"
+          description: "Connect CA certificate has expired on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/connect-cert-expired"
+
+      # Connect proxy down
+      - alert: ConsulConnectProxyDown
+        expr: up{job="consul-connect-envoy"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: consul
+          component: connect
+          team: platform
+        annotations:
+          summary: "Consul Connect proxy is down"
+          description: "Connect proxy {{ $labels.instance }} has been down for more than 2 minutes."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/connect-proxy-down"
+
+      # High Connect proxy latency
+      - alert: ConsulConnectHighLatency
+        expr: histogram_quantile(0.95, sum(rate(envoy_http_downstream_rq_time_bucket[5m])) by (le, envoy_http_conn_manager_prefix)) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: consul
+          component: connect
+          team: platform
+        annotations:
+          summary: "High latency in Consul Connect proxy"
+          description: "P95 request latency is {{ $value }}ms for proxy {{ $labels.envoy_http_conn_manager_prefix }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/connect-high-latency"
+
+  - name: consul.dns
+    interval: 60s
+    rules:
+      # High DNS query latency
+      - alert: ConsulHighDNSLatency
+        expr: histogram_quantile(0.95, sum(rate(consul_dns_domain_query_duration_bucket[5m])) by (le)) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: consul
+          component: dns
+          team: platform
+        annotations:
+          summary: "High DNS query latency in Consul"
+          description: "P95 DNS query latency is {{ $value }}ms."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/high-dns-latency"
+
+      # DNS query failures
+      - alert: ConsulDNSQueryFailures
+        expr: rate(consul_dns_domain_query{rcode!="NOERROR"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: consul
+          component: dns
+          team: platform
+        annotations:
+          summary: "DNS query failures in Consul"
+          description: "{{ $value }} DNS queries per second are failing on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/dns-failures"
+
+  - name: consul.kv
+    interval: 60s
+    rules:
+      # High KV operation latency
+      - alert: ConsulHighKVLatency
+        expr: histogram_quantile(0.95, sum(rate(consul_kvs_apply_duration_bucket[5m])) by (le)) > 50
+        for: 5m
+        labels:
+          severity: warning
+          service: consul
+          component: kv
+          team: platform
+        annotations:
+          summary: "High KV operation latency in Consul"
+          description: "P95 KV operation latency is {{ $value }}ms."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/high-kv-latency"
+
+      # KV store size growing rapidly
+      - alert: ConsulKVStoreGrowth
+        expr: increase(consul_state_kv_set[1h]) > 10000
+        for: 0m
+        labels:
+          severity: info
+          service: consul
+          component: kv
+          team: platform
+        annotations:
+          summary: "Rapid KV store growth in Consul"
+          description: "{{ $value }} KV entries were added in the last hour."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/kv-growth"
+
+  - name: consul.performance
+    interval: 60s
+    rules:
+      # High number of goroutines
+      - alert: ConsulHighGoroutines
+        expr: consul_runtime_num_goroutines > 5000
+        for: 10m
+        labels:
+          severity: warning
+          service: consul
+          team: platform
+        annotations:
+          summary: "High number of goroutines in Consul"
+          description: "Consul agent {{ $labels.instance }} has {{ $value }} goroutines running."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/high-goroutines"
+
+      # High RPC request rate
+      - alert: ConsulHighRPCRate
+        expr: rate(consul_rpc_query[5m]) > 1000
+        for: 10m
+        labels:
+          severity: info
+          service: consul
+          team: platform
+        annotations:
+          summary: "High RPC request rate in Consul"
+          description: "RPC request rate is {{ $value }} per second on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/high-rpc-rate"
+
+      # Raft log growing rapidly
+      - alert: ConsulRaftLogGrowth
+        expr: increase(consul_raft_logIndex[1h]) > 100000
+        for: 0m
+        labels:
+          severity: info
+          service: consul
+          team: platform
+        annotations:
+          summary: "Rapid Raft log growth in Consul"
+          description: "Raft log grew by {{ $value }} entries in the last hour on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/raft-log-growth"
+
+  - name: consul.security
+    interval: 60s
+    rules:
+      # ACL token denied
+      - alert: ConsulACLDenied
+        expr: increase(consul_acl_deny[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: consul
+          component: acl
+          team: security
+        annotations:
+          summary: "High ACL denials in Consul"
+          description: "{{ $value }} ACL denials in the last 5 minutes on {{ $labels.instance }}."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/acl-denials"
+
+      # Intention denials (Connect security)
+      - alert: ConsulIntentionDenied
+        expr: rate(envoy_rbac_denied[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: consul
+          component: connect
+          team: security
+        annotations:
+          summary: "High intention denials in Consul Connect"
+          description: "{{ $value }} connection attempts per second are being denied by intentions."
+          runbook_url: "https://docs.cloudya.net/runbooks/consul/intention-denials"

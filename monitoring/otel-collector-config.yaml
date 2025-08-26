@@ -1,0 +1,338 @@
+# OpenTelemetry Collector Configuration for HashiCorp Stack
+# This configuration provides comprehensive telemetry collection for Vault, Consul, Nomad, and Traefik
+
+receivers:
+  # Prometheus receiver for scraping HashiCorp services
+  prometheus/hashicorp:
+    config:
+      global:
+        scrape_interval: 30s
+        evaluation_interval: 30s
+        external_labels:
+          environment: 'production'
+          cluster: 'cloudya'
+      
+      scrape_configs:
+        # Vault metrics
+        - job_name: 'vault'
+          static_configs:
+            - targets: ['vault.cloudya.net:8200']
+          metrics_path: '/v1/sys/metrics'
+          params:
+            format: ['prometheus']
+          scheme: 'https'
+          tls_config:
+            insecure_skip_verify: true
+          bearer_token_file: '/etc/otel/vault-token'
+          scrape_interval: 30s
+          scrape_timeout: 10s
+          
+        # Nomad metrics
+        - job_name: 'nomad'
+          consul_sd_configs:
+            - server: 'consul.cloudya.net:8500'
+              services: ['nomad-server', 'nomad-client']
+          relabel_configs:
+            - source_labels: [__meta_consul_service]
+              target_label: nomad_service
+            - source_labels: [__meta_consul_node]
+              target_label: nomad_node
+            - source_labels: [__address__]
+              regex: '(.*):(.*)'
+              target_label: __address__
+              replacement: '${1}:4646'
+          metrics_path: '/v1/metrics'
+          params:
+            format: ['prometheus']
+          scrape_interval: 30s
+          
+        # Consul metrics
+        - job_name: 'consul'
+          consul_sd_configs:
+            - server: 'consul.cloudya.net:8500'
+              services: ['consul']
+          relabel_configs:
+            - source_labels: [__meta_consul_service]
+              target_label: consul_service
+            - source_labels: [__meta_consul_node]
+              target_label: consul_node
+            - source_labels: [__address__]
+              regex: '(.*):(.*)'
+              target_label: __address__
+              replacement: '${1}:8500'
+          metrics_path: '/v1/agent/metrics'
+          params:
+            format: ['prometheus']
+          scrape_interval: 30s
+          
+        # Traefik metrics
+        - job_name: 'traefik'
+          static_configs:
+            - targets: ['traefik.cloudya.net:8082']
+          metrics_path: '/metrics'
+          scrape_interval: 15s
+          
+        # Consul Connect Proxies
+        - job_name: 'consul-connect'
+          consul_sd_configs:
+            - server: 'consul.cloudya.net:8500'
+              services: []
+          relabel_configs:
+            - source_labels: [__meta_consul_service_metadata_envoy_prometheus_port]
+              regex: '(.+)'
+              target_label: __address__
+              replacement: '${1}'
+            - source_labels: [__meta_consul_service]
+              target_label: service
+            - source_labels: [__meta_consul_service_metadata_connect_proxy]
+              regex: 'true'
+              action: keep
+          metrics_path: '/stats/prometheus'
+          scrape_interval: 30s
+
+  # OTLP receiver for applications
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Jaeger receiver for existing traces
+  jaeger:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14250
+      thrift_http:
+        endpoint: 0.0.0.0:14268
+      thrift_compact:
+        endpoint: 0.0.0.0:6831
+      thrift_binary:
+        endpoint: 0.0.0.0:6832
+
+  # System metrics receiver
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      disk:
+        include:
+          devices: [ /dev/sda*, /dev/nvme* ]
+          mount_points: [ /, /opt, /var ]
+        exclude:
+          fs_types:
+            match_type: strict
+            items: [ autofs, binfmt_misc, bpf, cgroup2, configfs, debugfs ]
+      filesystem:
+        include:
+          devices: [ /dev/sda*, /dev/nvme* ]
+          mount_points: [ /, /opt, /var ]
+        exclude:
+          fs_types:
+            match_type: strict
+            items: [ autofs, binfmt_misc, bpf, cgroup2, configfs, debugfs ]
+      load: {}
+      memory: {}
+      network: {}
+      process:
+        mute_process_name_error: true
+        mute_process_exe_error: true
+        mute_process_io_error: true
+
+  # FluentForward receiver for log forwarding
+  fluentforward:
+    endpoint: 0.0.0.0:8006
+
+  # Syslog receiver for HashiCorp audit logs
+  syslog:
+    tcp:
+      listen_address: "0.0.0.0:54527"
+    udp:
+      listen_address: "0.0.0.0:54527"
+    protocol: rfc5424
+
+processors:
+  # Memory limiter
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+    check_interval: 1s
+
+  # Batch processor
+  batch:
+    timeout: 1s
+    send_batch_size: 8192
+    send_batch_max_size: 16384
+
+  # Resource processor to add environment context
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: production
+        action: upsert
+      - key: service.namespace
+        value: cloudya
+        action: upsert
+      - key: service.version
+        from_attribute: version
+        action: upsert
+
+  # Attributes processor for enrichment
+  attributes:
+    actions:
+      - key: hashicorp.service
+        from_attribute: job
+        action: upsert
+      - key: hashicorp.node
+        from_attribute: instance
+        action: upsert
+      - key: hashicorp.datacenter
+        value: dc1
+        action: upsert
+
+  # Transform processor for metric standardization
+  transform:
+    metric_statements:
+      - context: metric
+        statements:
+          # Standardize Vault metrics
+          - set(name, "vault_core_unsealed") where name == "vault.core.unsealed"
+          - set(name, "vault_runtime_alloc_bytes") where name == "vault.runtime.alloc_bytes"
+          - set(name, "vault_runtime_sys_bytes") where name == "vault.runtime.sys_bytes"
+          
+          # Standardize Nomad metrics
+          - set(name, "nomad_runtime_alloc_bytes") where name == "nomad.runtime.alloc_bytes"
+          - set(name, "nomad_client_allocations_running") where name == "nomad.client.allocations.running"
+          
+          # Standardize Consul metrics
+          - set(name, "consul_runtime_alloc_bytes") where name == "consul.runtime.alloc_bytes"
+          - set(name, "consul_serf_member_status") where name == "consul.serf.member.status"
+
+  # Probabilistic sampler for traces
+  probabilistic_sampler:
+    sampling_percentage: 10.0
+
+  # Span processor for trace enhancement
+  span:
+    name:
+      to_attributes:
+        rules:
+          - ^\/v1\/(?P<vault_api_version>.*)$ # Extract Vault API version
+          - ^\/v1\/agent\/(?P<consul_agent_endpoint>.*)$ # Extract Consul agent endpoint
+
+exporters:
+  # Prometheus exporter for metrics
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: cloudya
+    const_labels:
+      environment: production
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Jaeger exporter for traces
+  jaeger:
+    endpoint: jaeger-collector.monitoring.svc.cluster.local:14250
+    tls:
+      insecure: true
+
+  # Loki exporter for logs
+  loki:
+    endpoint: "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+    default_labels_enabled:
+      exporter: false
+      job: true
+    tenant_id: "cloudya"
+
+  # OTLP exporter for external systems
+  otlp/external:
+    endpoint: "https://otel.external-vendor.com:4317"
+    headers:
+      api-key: "${EXTERNAL_OTEL_API_KEY}"
+    tls:
+      cert_file: /etc/otel/tls/cert.pem
+      key_file: /etc/otel/tls/key.pem
+      ca_file: /etc/otel/tls/ca.pem
+
+  # File exporter for debugging
+  file:
+    path: ./otel-output.json
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /health
+
+  # pprof extension for performance profiling
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # zpages extension for debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+  # Memory ballast for stability
+  memory_ballast:
+    size_mib: 165
+
+service:
+  extensions:
+    - health_check
+    - pprof
+    - zpages
+    - memory_ballast
+  
+  pipelines:
+    metrics:
+      receivers:
+        - prometheus/hashicorp
+        - otlp
+        - hostmetrics
+      processors:
+        - memory_limiter
+        - resource
+        - attributes
+        - transform
+        - batch
+      exporters:
+        - prometheus
+        - otlp/external
+
+    traces:
+      receivers:
+        - otlp
+        - jaeger
+      processors:
+        - memory_limiter
+        - resource
+        - probabilistic_sampler
+        - span
+        - batch
+      exporters:
+        - jaeger
+        - otlp/external
+
+    logs:
+      receivers:
+        - otlp
+        - fluentforward
+        - syslog
+      processors:
+        - memory_limiter
+        - resource
+        - attributes
+        - batch
+      exporters:
+        - loki
+        - file
+
+  telemetry:
+    logs:
+      level: "info"
+    metrics:
+      address: 0.0.0.0:8888

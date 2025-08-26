@@ -1,0 +1,90 @@
+{
+  "name": "cloudya-vault-tests",
+  "version": "1.0.0",
+  "description": "Comprehensive test suite for Cloudya Vault infrastructure",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest --verbose --coverage --testTimeout=30000",
+    "test:integration": "jest tests/integration --verbose --testTimeout=60000",
+    "test:security": "jest tests/security --verbose --testTimeout=45000",
+    "test:performance": "jest tests/performance --verbose --testTimeout=120000",
+    "test:monitoring": "jest tests/monitoring --verbose --testTimeout=60000",
+    "test:ssl": "./tests/ssl/ssl_test.sh",
+    "test:automation": "./tests/scripts/automation_test.sh",
+    "test:all": "npm run test:ssl && npm run test:automation && npm run test",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --coverage --testTimeout=30000 --silent",
+    "coverage": "jest --coverage --coverageReporters=text-lcov | coveralls",
+    "lint": "eslint tests/**/*.js",
+    "lint:fix": "eslint tests/**/*.js --fix"
+  },
+  "keywords": [
+    "vault",
+    "consul",
+    "nomad",
+    "traefik",
+    "hashicorp",
+    "infrastructure",
+    "testing",
+    "security",
+    "monitoring"
+  ],
+  "author": "Cloudya Infrastructure Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "jest": "^29.7.0",
+    "eslint": "^8.57.0",
+    "coveralls": "^3.1.1"
+  },
+  "dependencies": {
+    "node-vault": "^0.10.2",
+    "consul": "^0.40.0",
+    "axios": "^1.6.0",
+    "glob": "^10.3.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverage": true,
+    "coverageDirectory": "tests/reports/coverage",
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html",
+      "json"
+    ],
+    "collectCoverageFrom": [
+      "tests/**/*.js",
+      "!tests/reports/**",
+      "!tests/node_modules/**",
+      "!tests/coverage/**"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js",
+      "**/tests/**/*_test.js",
+      "**/tests/**/test_*.js"
+    ],
+    "verbose": true,
+    "testTimeout": 30000,
+    "setupFilesAfterEnv": ["<rootDir>/tests/setup.js"]
+  },
+  "eslintConfig": {
+    "env": {
+      "node": true,
+      "jest": true,
+      "es2021": true
+    },
+    "extends": [
+      "eslint:recommended"
+    ],
+    "parserOptions": {
+      "ecmaVersion": 12,
+      "sourceType": "module"
+    },
+    "rules": {
+      "no-console": "warn",
+      "no-unused-vars": "error",
+      "no-undef": "error"
+    }
+  }
+}

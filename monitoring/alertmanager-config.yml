@@ -1,0 +1,279 @@
+# Alertmanager Configuration for HashiCorp Stack
+global:
+  # SMTP configuration for email alerts
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@cloudya.net'
+  smtp_auth_username: 'alerts@cloudya.net'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  
+  # Slack webhook URL for notifications
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  
+  # PagerDuty integration key
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Templates for alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Routing configuration
+route:
+  group_by: ['alertname', 'severity', 'service']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'web.hook.default'
+  
+  routes:
+    # Critical alerts go to PagerDuty immediately
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+      group_wait: 0s
+      repeat_interval: 5m
+      continue: true
+      
+    # Vault-specific alerts
+    - match:
+        service: vault
+      receiver: 'vault-team'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'vault-critical'
+          group_wait: 0s
+          repeat_interval: 1m
+          
+    # Nomad-specific alerts  
+    - match:
+        service: nomad
+      receiver: 'nomad-team'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'nomad-critical'
+          group_wait: 0s
+          repeat_interval: 1m
+          
+    # Consul-specific alerts
+    - match:
+        service: consul
+      receiver: 'consul-team'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'consul-critical'
+          group_wait: 0s
+          repeat_interval: 1m
+          
+    # Security alerts
+    - match_re:
+        alertname: '(VaultUnauthorizedAccess|TokenMisuse|SecurityViolation|CertificateExpiry).*'
+      receiver: 'security-team'
+      group_wait: 0s
+      repeat_interval: 30m
+      
+    # Infrastructure alerts
+    - match_re:
+        alertname: '(HighCPU|HighMemory|DiskSpacelow|NodeDown).*'
+      receiver: 'infrastructure-team'
+      
+    # Warning alerts go to general notification
+    - match:
+        severity: warning
+      receiver: 'general-notifications'
+      repeat_interval: 4h
+
+# Inhibition rules to suppress redundant alerts
+inhibit_rules:
+  # Suppress warning alerts if critical alerts are firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service', 'instance']
+    
+  # Suppress node-level alerts if the node is down
+  - source_match:
+      alertname: 'NodeDown'
+    target_match_re:
+      alertname: '(HighCPU|HighMemory|DiskSpaceLow).*'
+    equal: ['instance']
+    
+  # Suppress service alerts if the entire cluster is down
+  - source_match:
+      alertname: 'VaultClusterDown'
+    target_match_re:
+      alertname: 'Vault.*'
+    equal: ['cluster']
+
+# Receiver configurations
+receivers:
+  # Default webhook receiver
+  - name: 'web.hook.default'
+    webhook_configs:
+      - url: 'http://webhook-receiver:8080/alerts'
+        http_config:
+          bearer_token: '${WEBHOOK_TOKEN}'
+        
+  # PagerDuty for critical alerts
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_INTEGRATION_KEY}'
+        severity: 'critical'
+        client: 'Cloudya Monitoring'
+        client_url: 'https://grafana.cloudya.net'
+        description: 'Critical Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        details:
+          alert_count: '{{ .Alerts | len }}'
+          alerts: |
+            {{ range .Alerts }}
+            - Alert: {{ .Annotations.summary }}
+              Description: {{ .Annotations.description }}
+              Service: {{ .Labels.service }}
+              Instance: {{ .Labels.instance }}
+              Severity: {{ .Labels.severity }}
+            {{ end }}
+
+  # Vault team notifications
+  - name: 'vault-team'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#vault-alerts'
+        username: 'Vault Monitor'
+        icon_emoji: ':vault:'
+        title: 'Vault Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Service:* {{ .Labels.service }}
+          *Instance:* {{ .Labels.instance }}
+          *Severity:* {{ .Labels.severity }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        actions:
+          - type: button
+            text: 'View in Grafana'
+            url: 'https://grafana.cloudya.net/d/vault-operations'
+          - type: button
+            text: 'View Logs'
+            url: 'https://grafana.cloudya.net/explore'
+    email_configs:
+      - to: 'vault-team@cloudya.net'
+        subject: 'Vault Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        headers:
+          priority: high
+        body: |
+          Vault monitoring has detected the following alerts:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Service: {{ .Labels.service }}
+          Instance: {{ .Labels.instance }}
+          Severity: {{ .Labels.severity }}
+          Started: {{ .StartsAt }}
+          Runbook: {{ .Annotations.runbook_url }}
+          
+          {{ end }}
+          
+          Dashboard: https://grafana.cloudya.net/d/vault-operations
+          Logs: https://grafana.cloudya.net/explore
+
+  # Critical Vault alerts
+  - name: 'vault-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_VAULT_KEY}'
+        severity: 'critical'
+        client: 'Vault Monitoring'
+        description: 'CRITICAL Vault Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#critical-alerts'
+        username: 'CRITICAL VAULT ALERT'
+        icon_emoji: ':rotating_light:'
+        title: 'CRITICAL: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        color: 'danger'
+
+  # Nomad team notifications  
+  - name: 'nomad-team'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#nomad-alerts'
+        username: 'Nomad Monitor'
+        icon_emoji: ':nomad:'
+        title: 'Nomad Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+    email_configs:
+      - to: 'nomad-team@cloudya.net'
+        subject: 'Nomad Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  # Critical Nomad alerts
+  - name: 'nomad-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_NOMAD_KEY}'
+        severity: 'critical'
+        client: 'Nomad Monitoring'
+        description: 'CRITICAL Nomad Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  # Consul team notifications
+  - name: 'consul-team'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#consul-alerts'
+        username: 'Consul Monitor'
+        icon_emoji: ':consul:'
+        title: 'Consul Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+    email_configs:
+      - to: 'consul-team@cloudya.net'
+        subject: 'Consul Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  # Critical Consul alerts
+  - name: 'consul-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_CONSUL_KEY}'
+        severity: 'critical'
+        client: 'Consul Monitoring'
+        description: 'CRITICAL Consul Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  # Security team notifications
+  - name: 'security-team'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_SECURITY_KEY}'
+        severity: 'error'
+        client: 'Security Monitoring'
+        description: 'Security Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#security-alerts'
+        username: 'Security Monitor'
+        icon_emoji: ':warning:'
+        title: 'Security Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        color: 'warning'
+    email_configs:
+      - to: 'security-team@cloudya.net'
+        subject: 'SECURITY ALERT: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        headers:
+          priority: high
+
+  # Infrastructure team notifications
+  - name: 'infrastructure-team'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#infrastructure-alerts'
+        username: 'Infrastructure Monitor'
+        icon_emoji: ':computer:'
+        title: 'Infrastructure Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+    email_configs:
+      - to: 'infrastructure-team@cloudya.net'
+        subject: 'Infrastructure Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  # General notifications for non-critical alerts
+  - name: 'general-notifications'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#monitoring-general'
+        username: 'Monitor Bot'
+        icon_emoji: ':bell:'
+        title: 'Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        color: 'warning'

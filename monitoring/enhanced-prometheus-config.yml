@@ -1,0 +1,374 @@
+# Enhanced Prometheus Configuration for HashiCorp Stack with OpenTelemetry Integration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'cloudya-production'
+    environment: 'production'
+    cluster: 'hashicorp-stack'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+    - consul_sd_configs:
+        - server: 'consul.cloudya.net:8500'
+          services: ['alertmanager']
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'
+rule_files:
+  - "rules/hashicorp/*.yml"
+  - "rules/infrastructure/*.yml" 
+  - "rules/security/*.yml"
+  - "rules/sla/*.yml"
+
+# Remote write configuration for long-term storage
+remote_write:
+  - url: "http://mimir.monitoring.svc.cluster.local:8080/api/v1/push"
+    queue_config:
+      max_samples_per_send: 10000
+      capacity: 20000
+      max_shards: 200
+    metadata_config:
+      send: true
+      send_interval: 30s
+      max_samples_per_send: 500
+    write_relabel_configs:
+      # Drop unnecessary metrics to reduce storage costs
+      - source_labels: [__name__]
+        regex: 'go_.*|promhttp_.*|process_.*'
+        action: drop
+      # Keep only important HashiCorp metrics
+      - source_labels: [__name__]
+        regex: '(vault|nomad|consul|traefik)_.*'
+        action: keep
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # OpenTelemetry Collector metrics
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'otelcol_.*'
+        target_label: component
+        replacement: 'otel-collector'
+
+  # Node Exporter - System metrics with enhanced configuration
+  - job_name: 'node-exporter'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['node-exporter']
+    relabel_configs:
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_service_address]
+        regex: ''
+        target_label: __address__
+        replacement: '${__meta_consul_node}:9100'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metric_relabel_configs:
+      # Drop unnecessary filesystem metrics
+      - source_labels: [__name__, fstype]
+        regex: 'node_filesystem_.*;(tmpfs|devtmpfs|proc|sys|cgroup.*)'
+        action: drop
+
+  # Vault metrics with enhanced configuration
+  - job_name: 'vault'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['vault']
+        tags: ['active']
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: service
+        replacement: 'vault'
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_service_address]
+        regex: ''
+        target_label: __address__
+        replacement: '${__meta_consul_node}:8200'
+      - source_labels: [__meta_consul_service_address]
+        regex: '(.+)'
+        target_label: __address__
+        replacement: '${1}:8200'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: /v1/sys/metrics
+    params:
+      format: ['prometheus']
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/tls/ca.pem
+      cert_file: /etc/prometheus/tls/prometheus.pem
+      key_file: /etc/prometheus/tls/prometheus-key.pem
+      server_name: vault.cloudya.net
+    bearer_token_file: /etc/prometheus/vault-token
+    metric_relabel_configs:
+      # Add Vault-specific labels
+      - source_labels: [__name__]
+        regex: 'vault_(.+)'
+        target_label: vault_metric
+        replacement: '${1}'
+      # Enrich with cluster information
+      - target_label: vault_cluster
+        replacement: 'production'
+
+  # Nomad metrics with service discovery
+  - job_name: 'nomad-servers'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['nomad-server']
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: service
+        replacement: 'nomad-server'
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_service_address]
+        regex: ''
+        target_label: __address__
+        replacement: '${__meta_consul_node}:4646'
+      - source_labels: [__meta_consul_service_address]
+        regex: '(.+)'
+        target_label: __address__
+        replacement: '${1}:4646'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: /v1/metrics
+    params:
+      format: ['prometheus']
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/tls/nomad-ca.pem
+      cert_file: /etc/prometheus/tls/prometheus-nomad.pem
+      key_file: /etc/prometheus/tls/prometheus-nomad-key.pem
+
+  # Nomad clients
+  - job_name: 'nomad-clients'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['nomad-client']
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: service
+        replacement: 'nomad-client'
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_service_address]
+        regex: ''
+        target_label: __address__
+        replacement: '${__meta_consul_node}:4646'
+    scrape_interval: 30s
+    metrics_path: /v1/metrics
+    params:
+      format: ['prometheus']
+
+  # Consul metrics with enhanced service discovery
+  - job_name: 'consul'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['consul']
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: service
+        replacement: 'consul'
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_datacenter]
+        target_label: datacenter
+      - source_labels: [__meta_consul_service_address]
+        regex: ''
+        target_label: __address__
+        replacement: '${__meta_consul_node}:8500'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: /v1/agent/metrics
+    params:
+      format: ['prometheus']
+    metric_relabel_configs:
+      # Add Consul-specific enrichment
+      - source_labels: [__name__]
+        regex: 'consul_(.+)'
+        target_label: consul_metric
+        replacement: '${1}'
+
+  # Consul Connect Envoy Proxies
+  - job_name: 'consul-connect-envoy'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: []
+    relabel_configs:
+      # Only scrape services with Envoy proxy
+      - source_labels: [__meta_consul_service_metadata_envoy_prometheus_port]
+        regex: '(.+)'
+        target_label: __address__
+        replacement: '${__meta_consul_service_address}:${1}'
+      - source_labels: [__meta_consul_service_metadata_envoy_prometheus_port]
+        regex: '(.+)'
+        action: keep
+      - source_labels: [__meta_consul_service]
+        target_label: service
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_service_id]
+        target_label: service_id
+    scrape_interval: 30s
+    metrics_path: /stats/prometheus
+
+  # Traefik metrics with enhanced labels
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik.cloudya.net:8082']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'traefik_(.+)'
+        target_label: traefik_metric
+        replacement: '${1}'
+      - target_label: service
+        replacement: 'traefik'
+
+  # Container metrics via cAdvisor
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    metric_relabel_configs:
+      # Drop unnecessary container metrics
+      - source_labels: [__name__]
+        regex: 'container_(network_tcp_usage_total|network_udp_usage_total)'
+        action: drop
+      - source_labels: [container_label_com_hashicorp_nomad_job_name]
+        regex: '(.+)'
+        target_label: nomad_job
+        replacement: '${1}'
+
+  # Blackbox exporter for endpoint monitoring
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://cloudya.net/health
+        - https://vault.cloudya.net/v1/sys/health
+        - https://nomad.cloudya.net/v1/status/leader
+        - https://consul.cloudya.net/v1/status/leader
+        - https://traefik.cloudya.net/ping
+        - https://grafana.cloudya.net/api/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # SSL certificate expiry monitoring
+  - job_name: 'blackbox-ssl'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+        - cloudya.net:443
+        - vault.cloudya.net:443
+        - nomad.cloudya.net:443
+        - consul.cloudya.net:443
+        - traefik.cloudya.net:443
+        - grafana.cloudya.net:443
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+    scrape_interval: 300s  # Every 5 minutes
+
+  # HashiCorp application-specific metrics via Consul service discovery
+  - job_name: 'hashicorp-apps'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: []
+        tags: ['prometheus', 'metrics']
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: service
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_service_metadata_metrics_port]
+        regex: '(.+)'
+        target_label: __address__
+        replacement: '${__meta_consul_service_address}:${1}'
+      - source_labels: [__meta_consul_service_metadata_metrics_path]
+        regex: '(.+)'
+        target_label: __metrics_path__
+        replacement: '${1}'
+    scrape_interval: 30s
+
+  # Loki metrics for log pipeline monitoring
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Alertmanager metrics
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Redis metrics (if redis_exporter is deployed)
+  - job_name: 'redis'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['redis-exporter']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # PostgreSQL metrics (if postgres_exporter is deployed)
+  - job_name: 'postgres'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['postgres-exporter']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Process Exporter for HashiCorp process monitoring
+  - job_name: 'process-exporter'
+    consul_sd_configs:
+      - server: 'consul.cloudya.net:8500'
+        services: ['process-exporter']
+    scrape_interval: 30s
+    metrics_path: /metrics

@@ -1,0 +1,460 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Nomad Cluster Operations Dashboard",
+    "tags": ["nomad", "hashicorp", "orchestration"],
+    "style": "dark",
+    "timezone": "UTC",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "nomad_cluster",
+          "type": "query",
+          "query": "label_values(nomad_runtime_alloc_bytes, cluster)",
+          "refresh": 1,
+          "includeAll": false,
+          "multi": false
+        },
+        {
+          "name": "nomad_node",
+          "type": "query",
+          "query": "label_values(nomad_client_allocations_running{cluster=~\"$nomad_cluster\"}, node)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        },
+        {
+          "name": "job_name",
+          "type": "query",
+          "query": "label_values(nomad_client_allocations_running, job)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Cluster Overview",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "orientation": "vertical"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "green", "value": 3}
+              ]
+            },
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "count(nomad_serf_member_status{cluster=~\"$nomad_cluster\", status=\"alive\"})",
+            "legendFormat": "Active Servers",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Active Clients",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "count(nomad_client_uptime{cluster=~\"$nomad_cluster\"})",
+            "legendFormat": "Client Nodes",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Running Jobs",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(nomad_client_allocations_running{cluster=~\"$nomad_cluster\"})",
+            "legendFormat": "Running Allocations",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Resource Utilization",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "percentage",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            },
+            "unit": "percent",
+            "max": 100,
+            "min": 0
+          }
+        },
+        "targets": [
+          {
+            "expr": "(sum(nomad_client_allocated_cpu{cluster=~\"$nomad_cluster\"}) / sum(nomad_client_unallocated_cpu{cluster=~\"$nomad_cluster\"} + nomad_client_allocated_cpu{cluster=~\"$nomad_cluster\"})) * 100",
+            "legendFormat": "CPU Utilization %",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Job Placement Trends",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(nomad_client_allocations_running{cluster=~\"$nomad_cluster\"}) by (job)",
+            "legendFormat": "{{job}} - Running",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(nomad_client_allocations_pending{cluster=~\"$nomad_cluster\"}) by (job)",
+            "legendFormat": "{{job}} - Pending",
+            "refId": "B"
+          },
+          {
+            "expr": "sum(nomad_client_allocations_failed{cluster=~\"$nomad_cluster\"}) by (job)",
+            "legendFormat": "{{job}} - Failed",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Node Resource Distribution",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "MHz"
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_client_allocated_cpu{cluster=~\"$nomad_cluster\", node=~\"$nomad_node\"}",
+            "legendFormat": "{{node}} - Allocated CPU",
+            "refId": "A"
+          },
+          {
+            "expr": "nomad_client_unallocated_cpu{cluster=~\"$nomad_cluster\", node=~\"$nomad_node\"}",
+            "legendFormat": "{{node}} - Available CPU",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Memory Utilization by Node",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "bytes"
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_client_allocated_memory{cluster=~\"$nomad_cluster\", node=~\"$nomad_node\"}",
+            "legendFormat": "{{node}} - Allocated Memory",
+            "refId": "A"
+          },
+          {
+            "expr": "nomad_client_unallocated_memory{cluster=~\"$nomad_cluster\", node=~\"$nomad_node\"}",
+            "legendFormat": "{{node}} - Available Memory",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Scheduler Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_nomad_plan_queue_depth{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}} - Plan Queue Depth",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(nomad_nomad_plan_submit_duration_bucket{cluster=~\"$nomad_cluster\"}[5m])) by (le, instance))",
+            "legendFormat": "{{instance}} - P95 Plan Submit Time",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Raft Consensus Health",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_raft_leader_lastContact{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}} - Last Contact",
+            "refId": "A"
+          },
+          {
+            "expr": "nomad_raft_commitTime{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}} - Commit Time",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Leader Election Status",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+        "options": {
+          "colorMode": "background",
+          "textMode": "name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "mappings": [
+              {
+                "options": {
+                  "0": {"text": "FOLLOWER", "color": "orange"},
+                  "1": {"text": "LEADER", "color": "green"}
+                },
+                "type": "value"
+              }
+            ]
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_raft_leader{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "RPC Request Rates",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(nomad_nomad_rpc_query{cluster=~\"$nomad_cluster\"}[5m])) by (method)",
+            "legendFormat": "{{method}} - Queries/sec",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Job Status Distribution",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+        "options": {
+          "pieType": "donut",
+          "tooltip": {"mode": "single"},
+          "legend": {"displayMode": "table", "placement": "right"}
+        },
+        "targets": [
+          {
+            "expr": "sum(nomad_client_allocations_running{cluster=~\"$nomad_cluster\"}) by (job)",
+            "legendFormat": "{{job}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Node Health Status",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "options": {
+          "showHeader": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "mappings": [
+              {
+                "options": {
+                  "ready": {"text": "READY", "color": "green"},
+                  "initializing": {"text": "INIT", "color": "yellow"},
+                  "down": {"text": "DOWN", "color": "red"}
+                },
+                "type": "value"
+              }
+            ]
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_client_uptime{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "__name__": true,
+                "job": true
+              },
+              "indexByName": {
+                "node": 0,
+                "Value": 1
+              },
+              "renameByName": {
+                "Value": "Uptime (s)",
+                "node": "Node"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Vault Integration Health",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_vault_token_created{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}} - Vault Tokens Created",
+            "refId": "A"
+          },
+          {
+            "expr": "nomad_vault_token_lookup_failures{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}} - Token Lookup Failures",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Consul Integration Status",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "nomad_consul_services{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}} - Consul Services Registered",
+            "refId": "A"
+          },
+          {
+            "expr": "nomad_consul_check_registrations{cluster=~\"$nomad_cluster\"}",
+            "legendFormat": "{{instance}} - Health Check Registrations",
+            "refId": "B"
+          }
+        ]
+      }
+    ]
+  }
+}

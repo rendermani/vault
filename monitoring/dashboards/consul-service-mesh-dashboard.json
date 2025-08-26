@@ -1,0 +1,476 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Consul Service Mesh Dashboard",
+    "tags": ["consul", "hashicorp", "service-mesh"],
+    "style": "dark",
+    "timezone": "UTC",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "datacenter",
+          "type": "query",
+          "query": "label_values(consul_serf_member_status, datacenter)",
+          "refresh": 1,
+          "includeAll": false,
+          "multi": false
+        },
+        {
+          "name": "service",
+          "type": "query",
+          "query": "label_values(envoy_cluster_upstream_rq_total{datacenter=~\"$datacenter\"}, envoy_cluster_name)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        },
+        {
+          "name": "node",
+          "type": "query",
+          "query": "label_values(consul_serf_member_status{datacenter=~\"$datacenter\"}, node)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Consul Cluster Health",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "orientation": "vertical"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 2},
+                {"color": "green", "value": 3}
+              ]
+            },
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "count(consul_serf_member_status{datacenter=~\"$datacenter\", status=\"alive\"})",
+            "legendFormat": "Healthy Nodes",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Service Registration Count",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_catalog_services{datacenter=~\"$datacenter\"}",
+            "legendFormat": "Registered Services",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Connect Proxies Active",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "count(envoy_server_live{datacenter=~\"$datacenter\"})",
+            "legendFormat": "Active Proxies",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Raft Leader Status",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+        "options": {
+          "colorMode": "background",
+          "textMode": "name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "mappings": [
+              {
+                "options": {
+                  "0": {"text": "FOLLOWER", "color": "orange"},
+                  "1": {"text": "LEADER", "color": "green"}
+                },
+                "type": "value"
+              }
+            ]
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_raft_leader{datacenter=~\"$datacenter\"}",
+            "legendFormat": "{{node}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Service Mesh Traffic (RPS)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(envoy_cluster_upstream_rq_total{datacenter=~\"$datacenter\", envoy_cluster_name=~\"$service\"}[5m])) by (envoy_cluster_name)",
+            "legendFormat": "{{envoy_cluster_name}} - Requests/sec",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Service Mesh Response Times",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(envoy_http_downstream_rq_time_bucket{datacenter=~\"$datacenter\"}[5m])) by (le, envoy_http_conn_manager_prefix))",
+            "legendFormat": "{{envoy_http_conn_manager_prefix}} - P50",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(envoy_http_downstream_rq_time_bucket{datacenter=~\"$datacenter\"}[5m])) by (le, envoy_http_conn_manager_prefix))",
+            "legendFormat": "{{envoy_http_conn_manager_prefix}} - P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(envoy_http_downstream_rq_time_bucket{datacenter=~\"$datacenter\"}[5m])) by (le, envoy_http_conn_manager_prefix))",
+            "legendFormat": "{{envoy_http_conn_manager_prefix}} - P99",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Service Health Check Status",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_health_service_query_tag{datacenter=~\"$datacenter\", status=\"passing\"}",
+            "legendFormat": "{{service}} - Passing",
+            "refId": "A"
+          },
+          {
+            "expr": "consul_health_service_query_tag{datacenter=~\"$datacenter\", status=\"warning\"}",
+            "legendFormat": "{{service}} - Warning",
+            "refId": "B"
+          },
+          {
+            "expr": "consul_health_service_query_tag{datacenter=~\"$datacenter\", status=\"critical\"}",
+            "legendFormat": "{{service}} - Critical",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Connect Certificate Status",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_connect_ca_cert_expiry_seconds{datacenter=~\"$datacenter\"} / 86400",
+            "legendFormat": "{{node}} - CA Cert Expiry (days)",
+            "refId": "A"
+          },
+          {
+            "expr": "consul_connect_leaf_cert_expiry_seconds{datacenter=~\"$datacenter\"} / 86400",
+            "legendFormat": "{{node}} - Leaf Cert Expiry (days)",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "KV Store Operations",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ops"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(consul_kvs_apply{datacenter=~\"$datacenter\"}[5m]))",
+            "legendFormat": "KV Writes/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(consul_http_query{datacenter=~\"$datacenter\", method=\"GET\", path=~\".*/v1/kv/.*\"}[5m]))",
+            "legendFormat": "KV Reads/sec",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "DNS Query Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(consul_dns_domain_query_duration_bucket{datacenter=~\"$datacenter\"}[5m])) by (le))",
+            "legendFormat": "P95 DNS Query Time",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(consul_dns_domain_query{datacenter=~\"$datacenter\"}[5m])",
+            "legendFormat": "DNS Queries/sec",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Gossip Protocol Health",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_serf_events{datacenter=~\"$datacenter\"}",
+            "legendFormat": "{{node}} - Serf Events",
+            "refId": "A"
+          },
+          {
+            "expr": "consul_serf_member_flap{datacenter=~\"$datacenter\"}",
+            "legendFormat": "{{node}} - Member Flaps",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Service Dependency Map",
+        "type": "nodeGraph",
+        "gridPos": {"h": 12, "w": 12, "x": 0, "y": 32},
+        "options": {
+          "nodes": {
+            "mainStatUnit": "reqps"
+          },
+          "edges": {
+            "mainStatUnit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(envoy_cluster_upstream_rq_total{datacenter=~\"$datacenter\"}[5m])) by (envoy_cluster_name, source_service)",
+            "legendFormat": "",
+            "refId": "A",
+            "format": "table"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Intention Enforcement",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_connect_intention_apply_count{datacenter=~\"$datacenter\"}",
+            "legendFormat": "{{node}} - Intentions Applied",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(envoy_rbac_allowed{datacenter=~\"$datacenter\"}[5m])",
+            "legendFormat": "Connections Allowed/sec",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(envoy_rbac_denied{datacenter=~\"$datacenter\"}[5m])",
+            "legendFormat": "Connections Denied/sec",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Service Discovery Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 44},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(consul_catalog_service_query_duration_bucket{datacenter=~\"$datacenter\"}[5m])) by (le))",
+            "legendFormat": "P95 Service Query Time",
+            "refId": "A"
+          },
+          {
+            "expr": "consul_catalog_service_not_found{datacenter=~\"$datacenter\"}",
+            "legendFormat": "Service Not Found",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Connect Proxy Error Rates",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 44},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(envoy_cluster_upstream_rq_xx{datacenter=~\"$datacenter\", envoy_response_code_class=~\"4xx|5xx\"}[5m])) / sum(rate(envoy_cluster_upstream_rq_total{datacenter=~\"$datacenter\"}[5m])) * 100",
+            "legendFormat": "{{envoy_cluster_name}} - Error Rate %",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 16,
+        "title": "Memory Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 52},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "bytes"
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_runtime_alloc_bytes{datacenter=~\"$datacenter\", node=~\"$node\"}",
+            "legendFormat": "{{node}} - Allocated Memory",
+            "refId": "A"
+          },
+          {
+            "expr": "consul_runtime_sys_bytes{datacenter=~\"$datacenter\", node=~\"$node\"}",
+            "legendFormat": "{{node}} - System Memory",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 17,
+        "title": "Raft Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 52},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "consul_raft_leader_lastContact{datacenter=~\"$datacenter\"}",
+            "legendFormat": "{{node}} - Last Contact",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(consul_raft_commitTime_bucket{datacenter=~\"$datacenter\"}[5m])) by (le, node))",
+            "legendFormat": "{{node}} - P95 Commit Time",
+            "refId": "B"
+          },
+          {
+            "expr": "consul_raft_commitIndex{datacenter=~\"$datacenter\"} - consul_raft_lastIndex{datacenter=~\"$datacenter\"}",
+            "legendFormat": "{{node}} - Raft Lag",
+            "refId": "C"
+          }
+        ]
+      }
+    ]
+  }
+}

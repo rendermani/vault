@@ -1,0 +1,515 @@
+name: Vault Infrastructure Integration
+
+on:
+  push:
+    branches: [ main, develop, staging ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      skip_tests:
+        description: 'Skip test execution'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  setup:
+    name: Setup and Validation
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env-setup.outputs.environment }}
+      version: ${{ steps.version.outputs.version }}
+      should_deploy: ${{ steps.env-setup.outputs.should_deploy }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup environment
+        id: env-setup
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=develop" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "environment=review" >> $GITHUB_OUTPUT
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "version=pr-${{ github.event.number }}-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF_NAME}-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+          fi
+
+  vault-setup:
+    name: Vault Authentication & Setup
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should_deploy == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Vault CLI
+        run: |
+          # Install Vault CLI
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update && sudo apt-get install vault
+
+      - name: Authenticate with Vault
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_ROLE_ID: ${{ secrets.VAULT_ROLE_ID }}
+          VAULT_SECRET_ID: ${{ secrets.VAULT_SECRET_ID }}
+        run: |
+          # Authenticate using AppRole
+          vault write auth/approle/login \
+            role_id="$VAULT_ROLE_ID" \
+            secret_id="$VAULT_SECRET_ID"
+
+      - name: Fetch Application Secrets
+        id: vault-secrets
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+        run: |
+          # Fetch environment-specific secrets
+          vault kv get -field=database_url secret/applications/${{ github.event.repository.name }}/$ENVIRONMENT > /tmp/database_url
+          vault kv get -field=api_key secret/applications/${{ github.event.repository.name }}/$ENVIRONMENT > /tmp/api_key
+          vault kv get -field=encryption_key secret/applications/${{ github.event.repository.name }}/$ENVIRONMENT > /tmp/encryption_key
+          
+          # Set outputs (masked)
+          echo "::add-mask::$(cat /tmp/database_url)"
+          echo "::add-mask::$(cat /tmp/api_key)"
+          echo "::add-mask::$(cat /tmp/encryption_key)"
+          
+          echo "database_url=$(cat /tmp/database_url)" >> $GITHUB_OUTPUT
+          echo "api_key=$(cat /tmp/api_key)" >> $GITHUB_OUTPUT
+          echo "encryption_key=$(cat /tmp/encryption_key)" >> $GITHUB_OUTPUT
+
+    outputs:
+      database_url: ${{ steps.vault-secrets.outputs.database_url }}
+      api_key: ${{ steps.vault-secrets.outputs.api_key }}
+      encryption_key: ${{ steps.vault-secrets.outputs.encryption_key }}
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: [setup, vault-setup]
+    if: github.event.inputs.skip_tests != 'true'
+    
+    strategy:
+      matrix:
+        test-type: [unit, integration, security]
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        if: matrix.test-type == 'unit' || matrix.test-type == 'integration'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Setup Node.js
+        if: matrix.test-type == 'unit'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Python dependencies
+        if: matrix.test-type == 'unit' || matrix.test-type == 'integration'
+        run: |
+          pip install -r integrations/python/requirements.txt
+          pip install pytest-cov pytest-xdist
+
+      - name: Install Node.js dependencies
+        if: matrix.test-type == 'unit'
+        run: |
+          cd integrations/javascript
+          npm ci
+
+      - name: Run Unit Tests
+        if: matrix.test-type == 'unit'
+        env:
+          DATABASE_URL: ${{ needs.vault-setup.outputs.database_url }}
+          API_KEY: ${{ needs.vault-setup.outputs.api_key }}
+          ENCRYPTION_KEY: ${{ needs.vault-setup.outputs.encryption_key }}
+        run: |
+          # Python tests
+          cd integrations/python
+          pytest tests/ --cov=vault_integration_sdk --cov-report=xml --cov-report=html -n auto
+          
+          # Node.js tests
+          cd ../javascript
+          npm test -- --coverage
+
+      - name: Run Integration Tests
+        if: matrix.test-type == 'integration'
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          CONSUL_ADDR: ${{ secrets.CONSUL_ADDR }}
+          CONSUL_TOKEN: ${{ secrets.CONSUL_TOKEN }}
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+          DATABASE_URL: ${{ needs.vault-setup.outputs.database_url }}
+        run: |
+          cd integrations/tests
+          python -m pytest integration/ -v --tb=short
+
+      - name: Run Security Tests
+        if: matrix.test-type == 'security'
+        run: |
+          # Install security scanning tools
+          pip install bandit safety semgrep
+          
+          # Python security scan
+          cd integrations/python
+          bandit -r vault_integration_sdk.py -f json -o security-report.json || true
+          safety check --json --output safety-report.json || true
+          
+          # Node.js security scan
+          cd ../javascript
+          npm audit --audit-level moderate --json > audit-report.json || true
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.test-type }}
+          path: |
+            integrations/**/coverage/
+            integrations/**/test-results/
+            integrations/**/*-report.json
+            integrations/**/*-report.xml
+
+  build:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    needs: [setup, test]
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=${{ needs.setup.outputs.version }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  consul-register:
+    name: Register with Consul
+    runs-on: ubuntu-latest
+    needs: [setup, vault-setup, build]
+    if: needs.setup.outputs.should_deploy == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Consul CLI
+        run: |
+          curl -fsSL https://releases.hashicorp.com/consul/1.16.1/consul_1.16.1_linux_amd64.zip -o consul.zip
+          unzip consul.zip
+          sudo mv consul /usr/local/bin/
+          consul version
+
+      - name: Register Service with Consul
+        env:
+          CONSUL_HTTP_ADDR: ${{ secrets.CONSUL_ADDR }}
+          CONSUL_HTTP_TOKEN: ${{ secrets.CONSUL_TOKEN }}
+          ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          # Create service definition
+          cat > service.json << EOF
+          {
+            "Name": "${{ github.event.repository.name }}",
+            "ID": "${{ github.event.repository.name }}-$ENVIRONMENT",
+            "Tags": [
+              "version:$VERSION",
+              "environment:$ENVIRONMENT",
+              "github-actions"
+            ],
+            "Address": "service.$ENVIRONMENT.internal",
+            "Port": 8080,
+            "Meta": {
+              "version": "$VERSION",
+              "commit": "${{ github.sha }}",
+              "branch": "${{ github.ref_name }}",
+              "deployed_by": "github-actions"
+            },
+            "Check": {
+              "HTTP": "https://service.$ENVIRONMENT.internal:8080/health",
+              "Interval": "10s",
+              "Timeout": "3s"
+            }
+          }
+          EOF
+          
+          # Register service
+          consul services register service.json
+
+  nomad-deploy:
+    name: Deploy with Nomad
+    runs-on: ubuntu-latest
+    needs: [setup, vault-setup, build, consul-register]
+    if: needs.setup.outputs.should_deploy == 'true'
+    environment: ${{ needs.setup.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Nomad CLI
+        run: |
+          curl -fsSL https://releases.hashicorp.com/nomad/1.6.2/nomad_1.6.2_linux_amd64.zip -o nomad.zip
+          unzip nomad.zip
+          sudo mv nomad /usr/local/bin/
+          nomad version
+
+      - name: Generate Nomad Job Specification
+        env:
+          ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+          VERSION: ${{ needs.setup.outputs.version }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.setup.outputs.version }}
+        run: |
+          # Create Nomad job spec from template
+          envsubst < integrations/ci-cd/nomad/app-template.nomad > ${{ github.event.repository.name }}.nomad
+          
+          # Validate job specification
+          nomad job validate ${{ github.event.repository.name }}.nomad
+
+      - name: Deploy to Nomad
+        env:
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+          ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+        run: |
+          # Deploy the job
+          nomad job run ${{ github.event.repository.name }}.nomad
+          
+          # Wait for deployment to complete
+          nomad job status ${{ github.event.repository.name }}
+          
+          # Check deployment health
+          timeout 300 bash -c 'until nomad job status ${{ github.event.repository.name }} | grep -q "running"; do sleep 5; done'
+
+      - name: Verify Deployment
+        env:
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+          CONSUL_HTTP_ADDR: ${{ secrets.CONSUL_ADDR }}
+          CONSUL_HTTP_TOKEN: ${{ secrets.CONSUL_TOKEN }}
+        run: |
+          # Get deployment status
+          nomad job status ${{ github.event.repository.name }}
+          
+          # Verify service registration in Consul
+          consul services | grep ${{ github.event.repository.name }}
+          
+          # Check service health
+          consul health service ${{ github.event.repository.name }}
+
+  monitoring-setup:
+    name: Setup Monitoring
+    runs-on: ubuntu-latest
+    needs: [setup, nomad-deploy]
+    if: needs.setup.outputs.should_deploy == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Prometheus Monitoring
+        env:
+          PROMETHEUS_ADDR: ${{ secrets.PROMETHEUS_ADDR }}
+          ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          # Create deployment metric
+          curl -X POST "$PROMETHEUS_ADDR/api/v1/admin/tsdb/delete_series" \
+            -d 'match[]=deployment_info{job="${{ github.event.repository.name }}",environment="'$ENVIRONMENT'"}'
+          
+          # Push deployment metrics
+          cat << EOF | curl -X POST "$PROMETHEUS_ADDR/metrics/job/${{ github.event.repository.name }}/environment/$ENVIRONMENT" --data-binary @-
+          # TYPE deployment_info gauge
+          deployment_info{version="$VERSION",commit="${{ github.sha }}",branch="${{ github.ref_name }}"} 1
+          # TYPE deployment_timestamp gauge
+          deployment_timestamp $(date +%s)
+          EOF
+
+      - name: Update Grafana Dashboards
+        env:
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_TOKEN: ${{ secrets.GRAFANA_TOKEN }}
+        run: |
+          # Create or update application dashboard
+          curl -X POST "$GRAFANA_URL/api/dashboards/db" \
+            -H "Authorization: Bearer $GRAFANA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @integrations/ci-cd/monitoring/grafana-dashboard.json
+
+  notification:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [setup, nomad-deploy, monitoring-setup]
+    if: always()
+    
+    steps:
+      - name: Determine Status
+        id: status
+        run: |
+          if [[ "${{ needs.nomad-deploy.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=Deployment successful for ${{ needs.setup.outputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=Deployment failed for ${{ needs.setup.outputs.environment }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack Notification
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          color="good"
+          if [[ "${{ steps.status.outputs.status }}" == "failure" ]]; then
+            color="danger"
+          fi
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"attachments\": [
+                {
+                  \"color\": \"$color\",
+                  \"title\": \"Deployment ${{ steps.status.outputs.status }}\",
+                  \"text\": \"${{ steps.status.outputs.message }}\",
+                  \"fields\": [
+                    {
+                      \"title\": \"Repository\",
+                      \"value\": \"${{ github.repository }}\",
+                      \"short\": true
+                    },
+                    {
+                      \"title\": \"Environment\",
+                      \"value\": \"${{ needs.setup.outputs.environment }}\",
+                      \"short\": true
+                    },
+                    {
+                      \"title\": \"Version\",
+                      \"value\": \"${{ needs.setup.outputs.version }}\",
+                      \"short\": true
+                    },
+                    {
+                      \"title\": \"Commit\",
+                      \"value\": \"${{ github.sha }}\",
+                      \"short\": true
+                    }
+                  ],
+                  \"footer\": \"GitHub Actions\",
+                  \"ts\": $(date +%s)
+                }
+              ]
+            }" \
+            $SLACK_WEBHOOK_URL
+
+  cleanup:
+    name: Cleanup Resources
+    runs-on: ubuntu-latest
+    needs: [setup, nomad-deploy]
+    if: failure() && needs.setup.outputs.should_deploy == 'true'
+    
+    steps:
+      - name: Rollback Deployment
+        env:
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+          CONSUL_HTTP_ADDR: ${{ secrets.CONSUL_ADDR }}
+          CONSUL_HTTP_TOKEN: ${{ secrets.CONSUL_TOKEN }}
+        run: |
+          # Stop current deployment
+          nomad job stop -purge ${{ github.event.repository.name }} || true
+          
+          # Deregister from Consul
+          consul services deregister ${{ github.event.repository.name }}-${{ needs.setup.outputs.environment }} || true
+          
+          # Clean up artifacts
+          docker rmi ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.setup.outputs.version }} || true

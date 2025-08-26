@@ -1,0 +1,3006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infrastructure Documentation - Vault, Nomad, Consul & Traefik</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --dark-bg: #1a1a1a;
+            --light-bg: #f8f9fa;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 100px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><defs><radialGradient id="a" cx="50%" cy="0%" fx="50%" fy="0%" r="100%"><stop offset="0%" stop-color="%23ffffff" stop-opacity="0.1"/><stop offset="100%" stop-color="%23ffffff" stop-opacity="0"/></radialGradient></defs><rect width="100%" height="100%" fill="url(%23a)"/></svg>');
+            animation: pulse 4s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.8; }
+        }
+
+        .card {
+            border: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .icon-large {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .component-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+            color: white;
+        }
+
+        .vault-bg { background: linear-gradient(135deg, #FFD700, #FFA500); }
+        .nomad-bg { background: linear-gradient(135deg, #00C851, #007E33); }
+        .consul-bg { background: linear-gradient(135deg, #E91E63, #AD1457); }
+        .traefik-bg { background: linear-gradient(135deg, #37B24D, #2F9E44); }
+
+        .architecture-diagram {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin: 2rem 0;
+        }
+
+        .code-switcher {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+
+        .code-switcher .btn {
+            border-radius: 20px;
+            padding: 0.5rem 1rem;
+        }
+
+        .code-example {
+            display: none;
+        }
+
+        .code-example.active {
+            display: block;
+        }
+
+        pre[class*="language-"] {
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .section-header h2 {
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .section-header p {
+            font-size: 1.1rem;
+            color: #666;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 3rem;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 1rem;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--secondary-color);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 2rem;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -2.5rem;
+            top: 0.5rem;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--secondary-color);
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            min-height: 100vh;
+            padding-top: 2rem;
+            position: sticky;
+            top: 0;
+        }
+
+        .sidebar-nav a {
+            color: #666;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            display: block;
+            border-left: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-nav a:hover,
+        .sidebar-nav a.active {
+            color: var(--secondary-color);
+            border-left-color: var(--secondary-color);
+            background: white;
+        }
+
+        .back-to-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--secondary-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .back-to-top:hover {
+            background: var(--primary-color);
+            transform: translateY(-2px);
+        }
+
+        .alert-custom {
+            border-left: 4px solid;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .alert-info { border-left-color: var(--secondary-color); }
+        .alert-warning { border-left-color: var(--warning-color); }
+        .alert-success { border-left-color: var(--success-color); }
+        .alert-danger { border-left-color: var(--accent-color); }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .footer {
+            background: var(--dark-bg);
+            color: #ccc;
+            padding: 3rem 0 2rem;
+        }
+
+        .footer h5 {
+            color: white;
+            margin-bottom: 1rem;
+        }
+
+        .footer a {
+            color: #ccc;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .footer a:hover {
+            color: var(--secondary-color);
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                position: relative;
+                min-height: auto;
+            }
+            
+            .hero-section {
+                padding: 60px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-server me-2"></i>
+                Infrastructure Docs
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#overview">Overview</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#getting-started">Getting Started</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#components">Components</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#integration">Integration</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#scaling">Scaling</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#security">Security</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#monitoring">Monitoring</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-section" id="hero">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-lg-6">
+                    <h1 class="display-4 fw-bold mb-4">
+                        Modern Infrastructure Stack
+                    </h1>
+                    <p class="lead mb-4">
+                        Comprehensive documentation for Vault, Nomad, Consul, and Traefik integration. 
+                        Build secure, scalable, and observable infrastructure with ease.
+                    </p>
+                    <div class="d-flex gap-3">
+                        <a href="#getting-started" class="btn btn-light btn-lg">
+                            <i class="fas fa-rocket me-2"></i>Get Started
+                        </a>
+                        <a href="#architecture" class="btn btn-outline-light btn-lg">
+                            <i class="fas fa-sitemap me-2"></i>View Architecture
+                        </a>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="text-center">
+                        <div class="d-inline-flex flex-wrap gap-3 justify-content-center">
+                            <div class="component-icon vault-bg">
+                                <i class="fas fa-lock"></i>
+                            </div>
+                            <div class="component-icon nomad-bg">
+                                <i class="fas fa-cubes"></i>
+                            </div>
+                            <div class="component-icon consul-bg">
+                                <i class="fas fa-network-wired"></i>
+                            </div>
+                            <div class="component-icon traefik-bg">
+                                <i class="fas fa-route"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar Navigation -->
+            <div class="col-lg-3 d-none d-lg-block">
+                <nav class="sidebar">
+                    <div class="sidebar-nav">
+                        <a href="#overview" class="active">Overview</a>
+                        <a href="#architecture">Architecture</a>
+                        <a href="#getting-started">Getting Started</a>
+                        <a href="#vault">Vault Configuration</a>
+                        <a href="#nomad">Nomad Deployment</a>
+                        <a href="#consul">Consul Service Discovery</a>
+                        <a href="#traefik">Traefik Routing</a>
+                        <a href="#integration">Integration Guides</a>
+                        <a href="#scaling">Scaling Strategies</a>
+                        <a href="#security">Security Practices</a>
+                        <a href="#monitoring">Monitoring Setup</a>
+                    </div>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-lg-9">
+                <main class="py-5">
+                    <!-- Overview Section -->
+                    <section id="overview" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-eye me-3"></i>Overview</h2>
+                            <p>A comprehensive infrastructure stack combining the power of HashiCorp tools with modern networking</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 col-lg-3 mb-4">
+                                <div class="card h-100 text-center">
+                                    <div class="card-body">
+                                        <div class="component-icon vault-bg mx-auto">
+                                            <i class="fas fa-lock"></i>
+                                        </div>
+                                        <h5 class="card-title">Vault</h5>
+                                        <p class="card-text">Secure secrets management, encryption, and access control for modern applications.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-3 mb-4">
+                                <div class="card h-100 text-center">
+                                    <div class="card-body">
+                                        <div class="component-icon nomad-bg mx-auto">
+                                            <i class="fas fa-cubes"></i>
+                                        </div>
+                                        <h5 class="card-title">Nomad</h5>
+                                        <p class="card-text">Flexible workload orchestrator for containers, legacy applications, and batch jobs.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-3 mb-4">
+                                <div class="card h-100 text-center">
+                                    <div class="card-body">
+                                        <div class="component-icon consul-bg mx-auto">
+                                            <i class="fas fa-network-wired"></i>
+                                        </div>
+                                        <h5 class="card-title">Consul</h5>
+                                        <p class="card-text">Service mesh and service discovery with health checking and configuration management.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-3 mb-4">
+                                <div class="card h-100 text-center">
+                                    <div class="card-body">
+                                        <div class="component-icon traefik-bg mx-auto">
+                                            <i class="fas fa-route"></i>
+                                        </div>
+                                        <h5 class="card-title">Traefik</h5>
+                                        <p class="card-text">Modern HTTP reverse proxy and load balancer with automatic service discovery.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Architecture Diagram -->
+                    <section id="architecture" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-sitemap me-3"></i>Architecture Diagram</h2>
+                            <p>Interactive overview of how all components work together</p>
+                        </div>
+
+                        <div class="architecture-diagram">
+                            <svg viewBox="0 0 800 600" style="width: 100%; height: 400px;">
+                                <!-- Background -->
+                                <defs>
+                                    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:1" />
+                                        <stop offset="100%" style="stop-color:#e9ecef;stop-opacity:1" />
+                                    </linearGradient>
+                                    <filter id="shadow">
+                                        <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+                                    </filter>
+                                </defs>
+                                
+                                <!-- External Traffic -->
+                                <rect x="50" y="50" width="120" height="60" rx="5" fill="#6c757d" filter="url(#shadow)"/>
+                                <text x="110" y="85" text-anchor="middle" fill="white" font-size="14" font-weight="bold">External Traffic</text>
+                                
+                                <!-- Traefik -->
+                                <rect x="250" y="50" width="120" height="60" rx="5" fill="#37B24D" filter="url(#shadow)"/>
+                                <text x="310" y="75" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Traefik</text>
+                                <text x="310" y="90" text-anchor="middle" fill="white" font-size="10">Load Balancer</text>
+                                
+                                <!-- Consul -->
+                                <rect x="450" y="50" width="120" height="60" rx="5" fill="#E91E63" filter="url(#shadow)"/>
+                                <text x="510" y="75" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Consul</text>
+                                <text x="510" y="90" text-anchor="middle" fill="white" font-size="10">Service Discovery</text>
+                                
+                                <!-- Nomad Cluster -->
+                                <rect x="150" y="200" width="200" height="80" rx="5" fill="#00C851" filter="url(#shadow)"/>
+                                <text x="250" y="225" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Nomad Cluster</text>
+                                <text x="250" y="240" text-anchor="middle" fill="white" font-size="10">Container Orchestration</text>
+                                
+                                <!-- Services -->
+                                <rect x="170" y="250" width="60" height="20" rx="3" fill="#28a745"/>
+                                <text x="200" y="262" text-anchor="middle" fill="white" font-size="8">Service A</text>
+                                
+                                <rect x="240" y="250" width="60" height="20" rx="3" fill="#28a745"/>
+                                <text x="270" y="262" text-anchor="middle" fill="white" font-size="8">Service B</text>
+                                
+                                <rect x="310" y="250" width="60" height="20" rx="3" fill="#28a745"/>
+                                <text x="340" y="262" text-anchor="middle" fill="white" font-size="8">Service C</text>
+                                
+                                <!-- Vault -->
+                                <rect x="450" y="200" width="120" height="80" rx="5" fill="#FFD700" filter="url(#shadow)"/>
+                                <text x="510" y="225" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">Vault</text>
+                                <text x="510" y="240" text-anchor="middle" fill="#333" font-size="10">Secrets Management</text>
+                                <text x="510" y="255" text-anchor="middle" fill="#333" font-size="10">PKI & Encryption</text>
+                                
+                                <!-- Monitoring -->
+                                <rect x="300" y="350" width="120" height="60" rx="5" fill="#17a2b8" filter="url(#shadow)"/>
+                                <text x="360" y="375" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Monitoring</text>
+                                <text x="360" y="390" text-anchor="middle" fill="white" font-size="10">Prometheus/Grafana</text>
+                                
+                                <!-- Connections -->
+                                <!-- External to Traefik -->
+                                <line x1="170" y1="80" x2="250" y2="80" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+                                
+                                <!-- Traefik to Consul -->
+                                <line x1="370" y1="80" x2="450" y2="80" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+                                
+                                <!-- Traefik to Nomad -->
+                                <line x1="310" y1="110" x2="250" y2="200" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+                                
+                                <!-- Consul to Nomad -->
+                                <line x1="510" y1="110" x2="350" y2="200" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+                                
+                                <!-- Nomad to Vault -->
+                                <line x1="350" y1="240" x2="450" y2="240" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+                                
+                                <!-- Services to Monitoring -->
+                                <line x1="250" y1="280" x2="360" y2="350" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+                                
+                                <!-- Arrow marker -->
+                                <defs>
+                                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                                        <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+                                    </marker>
+                                </defs>
+                                
+                                <!-- Labels -->
+                                <text x="210" y="70" text-anchor="middle" fill="#666" font-size="8">HTTPS</text>
+                                <text x="410" y="70" text-anchor="middle" fill="#666" font-size="8">Discovery</text>
+                                <text x="280" y="155" text-anchor="middle" fill="#666" font-size="8" transform="rotate(-25 280,155)">Route</text>
+                                <text x="430" y="155" text-anchor="middle" fill="#666" font-size="8" transform="rotate(25 430,155)">Register</text>
+                                <text x="400" y="230" text-anchor="middle" fill="#666" font-size="8">Secrets</text>
+                                <text x="305" y="315" text-anchor="middle" fill="#666" font-size="8" transform="rotate(45 305,315)">Metrics</text>
+                            </svg>
+                        </div>
+
+                        <div class="alert alert-info alert-custom">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Architecture Flow:</strong> External traffic hits Traefik, which discovers services through Consul, routes to Nomad-managed services, with Vault providing secure secret management throughout.
+                        </div>
+                    </section>
+
+                    <!-- Getting Started -->
+                    <section id="getting-started" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-rocket me-3"></i>Getting Started</h2>
+                            <p>Quick setup guide to get your infrastructure stack running</p>
+                        </div>
+
+                        <div class="timeline">
+                            <div class="timeline-item">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title"><i class="fas fa-download me-2 text-primary"></i>Step 1: Install Components</h5>
+                                        <p class="card-text">Download and install Vault, Nomad, Consul, and Traefik on your target machines.</p>
+                                        
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('install', 'bash')">Bash</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('install', 'docker')">Docker</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="install-bash">
+                                            <pre><code class="language-bash"># Install HashiCorp tools
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+sudo apt-get update && sudo apt-get install vault nomad consul
+
+# Install Traefik
+wget https://github.com/traefik/traefik/releases/download/v3.0.0/traefik_v3.0.0_linux_amd64.tar.gz
+tar -xzf traefik_v3.0.0_linux_amd64.tar.gz
+sudo mv traefik /usr/local/bin/</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="install-docker">
+                                            <pre><code class="language-yaml"># docker-compose.yml
+version: '3.8'
+services:
+  vault:
+    image: vault:latest
+    ports:
+      - "8200:8200"
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=myroot
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+      
+  consul:
+    image: consul:latest
+    ports:
+      - "8500:8500"
+    command: consul agent -dev -client=0.0.0.0
+      
+  nomad:
+    image: multani/nomad:latest
+    ports:
+      - "4646:4646"
+    command: nomad agent -dev -bind 0.0.0.0 -log-level INFO
+      
+  traefik:
+    image: traefik:v3.0
+    ports:
+      - "80:80"
+      - "8080:8080"
+    command: --api.insecure=true --providers.consulcatalog.endpoints=consul:8500</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title"><i class="fas fa-cog me-2 text-success"></i>Step 2: Basic Configuration</h5>
+                                        <p class="card-text">Configure each component with basic settings for development.</p>
+                                        
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('config', 'hcl')">HCL</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('config', 'yaml')">YAML</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="config-hcl">
+                                            <pre><code class="language-hcl"># consul.hcl
+datacenter = "dc1"
+data_dir = "/var/lib/consul"
+log_level = "INFO"
+server = true
+bootstrap_expect = 1
+ui_config {
+  enabled = true
+}
+connect {
+  enabled = true
+}
+
+# nomad.hcl
+datacenter = "dc1"
+data_dir = "/var/lib/nomad"
+server {
+  enabled = true
+  bootstrap_expect = 1
+}
+client {
+  enabled = true
+}
+consul {
+  address = "127.0.0.1:8500"
+}</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="config-yaml">
+                                            <pre><code class="language-yaml"># traefik.yml
+api:
+  dashboard: true
+  insecure: true
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  consulCatalog:
+    endpoints:
+      - "127.0.0.1:8500"
+    watch: true</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title"><i class="fas fa-play me-2 text-warning"></i>Step 3: Start Services</h5>
+                                        <p class="card-text">Launch all components in the correct order.</p>
+                                        
+                                        <pre><code class="language-bash"># Start Consul first (service discovery)
+sudo systemctl start consul
+
+# Start Vault (secrets management)
+sudo systemctl start vault
+
+# Start Nomad (orchestration)
+sudo systemctl start nomad
+
+# Start Traefik (load balancing)
+sudo systemctl start traefik
+
+# Verify all services
+consul members
+vault status
+nomad server members
+curl http://localhost:8080/dashboard/</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Vault Configuration -->
+                    <section id="vault" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-lock me-3"></i>Vault Configuration</h2>
+                            <p>Secure secrets management and encryption as a service</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-warning text-dark">
+                                        <h5 class="mb-0"><i class="fas fa-key me-2"></i>Initialization & Unsealing</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('vault-init', 'bash')">Bash</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('vault-init', 'python')">Python</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="vault-init-bash">
+                                            <pre><code class="language-bash"># Initialize Vault
+vault operator init
+
+# Unseal Vault (repeat with 3 different keys)
+vault operator unseal <key1>
+vault operator unseal <key2>
+vault operator unseal <key3>
+
+# Login with root token
+vault auth <root-token>
+
+# Enable KV secrets engine
+vault secrets enable -path=secret kv-v2</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="vault-init-python">
+                                            <pre><code class="language-python">import hvac
+
+# Initialize Vault client
+client = hvac.Client(url='http://localhost:8200')
+
+# Initialize Vault
+result = client.sys.initialize(secret_shares=5, secret_threshold=3)
+root_token = result['root_token']
+unseal_keys = result['keys']
+
+# Unseal Vault
+for i in range(3):
+    client.sys.submit_unseal_key(unseal_keys[i])
+
+# Authenticate
+client.token = root_token
+
+# Enable secrets engine
+client.sys.enable_secrets_engine('kv-v2', path='secret')</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-warning text-dark">
+                                        <h5 class="mb-0"><i class="fas fa-database me-2"></i>Secrets Management</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('vault-secrets', 'bash')">Bash</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('vault-secrets', 'python')">Python</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="vault-secrets-bash">
+                                            <pre><code class="language-bash"># Store a secret
+vault kv put secret/myapp/config \
+    database_url="postgresql://user:pass@localhost/db" \
+    api_key="secret-api-key"
+
+# Retrieve a secret
+vault kv get secret/myapp/config
+
+# Get specific field
+vault kv get -field=database_url secret/myapp/config
+
+# List secrets
+vault kv list secret/myapp/</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="vault-secrets-python">
+                                            <pre><code class="language-python"># Store secrets
+client.secrets.kv.v2.create_or_update_secret(
+    path='myapp/config',
+    secret={
+        'database_url': 'postgresql://user:pass@localhost/db',
+        'api_key': 'secret-api-key'
+    }
+)
+
+# Retrieve secrets
+secret = client.secrets.kv.v2.read_secret_version(
+    path='myapp/config'
+)
+data = secret['data']['data']
+
+print(f"Database URL: {data['database_url']}")
+print(f"API Key: {data['api_key']}")</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-success alert-custom">
+                            <i class="fas fa-lightbulb me-2"></i>
+                            <strong>Pro Tip:</strong> Use Vault's dynamic secrets for databases, PKI for certificate management, and transit engine for encryption as a service.
+                        </div>
+                    </section>
+
+                    <!-- Nomad Deployment -->
+                    <section id="nomad" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-cubes me-3"></i>Nomad Deployment</h2>
+                            <p>Container and application orchestration made simple</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-lg-6 mb-4">
+                                <div class="card">
+                                    <div class="card-header bg-success text-white">
+                                        <h5 class="mb-0"><i class="fas fa-file-code me-2"></i>Job Definition</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('nomad-job', 'hcl')">HCL</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('nomad-job', 'json')">JSON</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="nomad-job-hcl">
+                                            <pre><code class="language-hcl">job "webapp" {
+  datacenters = ["dc1"]
+  type = "service"
+
+  group "web" {
+    count = 3
+
+    network {
+      port "http" {
+        to = 8080
+      }
+    }
+
+    service {
+      name = "webapp"
+      port = "http"
+      
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.webapp.rule=Host(`app.local`)"
+      ]
+
+      check {
+        type = "http"
+        path = "/health"
+        interval = "10s"
+        timeout = "2s"
+      }
+    }
+
+    task "web" {
+      driver = "docker"
+
+      config {
+        image = "nginx:alpine"
+        ports = ["http"]
+      }
+
+      vault {
+        policies = ["webapp-policy"]
+      }
+
+      template {
+        data = <<EOH
+{{with secret "secret/webapp/config"}}
+DATABASE_URL={{.Data.data.database_url}}
+API_KEY={{.Data.data.api_key}}
+{{end}}
+EOH
+        destination = "secrets/app.env"
+        env = true
+      }
+
+      resources {
+        cpu = 500
+        memory = 256
+      }
+    }
+  }
+}</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="nomad-job-json">
+                                            <pre><code class="language-json">{
+  "Job": {
+    "ID": "webapp",
+    "Datacenters": ["dc1"],
+    "Type": "service",
+    "TaskGroups": [
+      {
+        "Name": "web",
+        "Count": 3,
+        "Networks": [
+          {
+            "DynamicPorts": [
+              {
+                "Label": "http",
+                "To": 8080
+              }
+            ]
+          }
+        ],
+        "Services": [
+          {
+            "Name": "webapp",
+            "PortLabel": "http",
+            "Tags": [
+              "traefik.enable=true",
+              "traefik.http.routers.webapp.rule=Host(`app.local`)"
+            ]
+          }
+        ],
+        "Tasks": [
+          {
+            "Name": "web",
+            "Driver": "docker",
+            "Config": {
+              "image": "nginx:alpine",
+              "ports": ["http"]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-6 mb-4">
+                                <div class="card">
+                                    <div class="card-header bg-success text-white">
+                                        <h5 class="mb-0"><i class="fas fa-play me-2"></i>Deployment Commands</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('nomad-deploy', 'bash')">Bash</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('nomad-deploy', 'python')">Python</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="nomad-deploy-bash">
+                                            <pre><code class="language-bash"># Validate job specification
+nomad job validate webapp.nomad
+
+# Plan deployment (dry run)
+nomad job plan webapp.nomad
+
+# Deploy the job
+nomad job run webapp.nomad
+
+# Check job status
+nomad job status webapp
+
+# View job logs
+nomad logs -f <allocation-id>
+
+# Scale the job
+nomad job scale webapp web 5
+
+# Stop the job
+nomad job stop webapp</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="nomad-deploy-python">
+                                            <pre><code class="language-python">import requests
+import json
+
+# Nomad API client
+class NomadClient:
+    def __init__(self, url="http://localhost:4646"):
+        self.url = url
+    
+    def submit_job(self, job_spec):
+        response = requests.post(
+            f"{self.url}/v1/jobs",
+            json={"Job": job_spec}
+        )
+        return response.json()
+    
+    def get_job_status(self, job_id):
+        response = requests.get(f"{self.url}/v1/job/{job_id}")
+        return response.json()
+    
+    def scale_job(self, job_id, group, count):
+        payload = {
+            "TaskGroups": {
+                group: count
+            }
+        }
+        response = requests.post(
+            f"{self.url}/v1/job/{job_id}/scale",
+            json=payload
+        )
+        return response.json()
+
+# Usage
+client = NomadClient()
+status = client.get_job_status("webapp")
+print(f"Job Status: {status['Status']}")</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="feature-grid">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-expand-arrows-alt icon-large text-primary"></i>
+                                    <h5>Multi-Region Deployment</h5>
+                                    <p>Deploy across multiple datacenters with automatic failover and load balancing.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-heartbeat icon-large text-success"></i>
+                                    <h5>Health Monitoring</h5>
+                                    <p>Built-in health checks with automatic service recovery and replacement.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-shield-alt icon-large text-warning"></i>
+                                    <h5>Vault Integration</h5>
+                                    <p>Seamless integration with Vault for secure secrets injection.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Consul Service Discovery -->
+                    <section id="consul" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-network-wired me-3"></i>Consul Service Discovery</h2>
+                            <p>Service mesh and configuration management</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-lg-8 mb-4">
+                                <div class="card">
+                                    <div class="card-header" style="background: #E91E63; color: white;">
+                                        <h5 class="mb-0"><i class="fas fa-search me-2"></i>Service Registration & Discovery</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('consul-service', 'bash')">Bash</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('consul-service', 'python')">Python</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="consul-service-bash">
+                                            <pre><code class="language-bash"># Register a service manually
+curl -X PUT http://localhost:8500/v1/agent/service/register \
+  -d '{
+    "ID": "webapp-1",
+    "Name": "webapp",
+    "Tags": ["v1.0", "production"],
+    "Address": "10.0.1.10",
+    "Port": 8080,
+    "Check": {
+      "HTTP": "http://10.0.1.10:8080/health",
+      "Interval": "10s"
+    }
+  }'
+
+# Discover services
+curl http://localhost:8500/v1/catalog/service/webapp
+
+# Query healthy instances only
+curl http://localhost:8500/v1/health/service/webapp?passing
+
+# DNS interface
+dig @localhost -p 8600 webapp.service.consul SRV
+
+# Deregister service
+curl -X PUT http://localhost:8500/v1/agent/service/deregister/webapp-1</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="consul-service-python">
+                                            <pre><code class="language-python">import consul
+
+# Initialize Consul client
+c = consul.Consul(host='localhost', port=8500)
+
+# Register service
+c.agent.service.register(
+    name='webapp',
+    service_id='webapp-1',
+    address='10.0.1.10',
+    port=8080,
+    tags=['v1.0', 'production'],
+    check=consul.Check.http('http://10.0.1.10:8080/health', '10s')
+)
+
+# Discover services
+services = c.catalog.service('webapp')
+for service in services[1]:
+    print(f"Service: {service['ServiceAddress']}:{service['ServicePort']}")
+
+# Health check
+healthy = c.health.service('webapp', passing=True)
+for instance in healthy[1]:
+    print(f"Healthy: {instance['Service']['Address']}")
+
+# Key-Value store
+c.kv.put('config/database/url', 'postgresql://localhost/mydb')
+index, data = c.kv.get('config/database/url')
+print(f"Database URL: {data['Value'].decode()}")
+
+# Watch for changes
+index = None
+while True:
+    index, data = c.kv.get('config/database/url', index=index)
+    if data:
+        print(f"Config changed: {data['Value'].decode()}")
+</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-4 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header" style="background: #E91E63; color: white;">
+                                        <h5 class="mb-0"><i class="fas fa-cogs me-2"></i>Service Mesh</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <pre><code class="language-hcl">Kind = "service-defaults"
+Name = "webapp"
+Protocol = "http"
+
+Kind = "service-router"
+Name = "webapp"
+Routes = [
+  {
+    Match {
+      HTTP {
+        Header = [
+          {
+            Name = "x-version"
+            Exact = "v2"
+          }
+        ]
+      }
+    }
+    Destination {
+      Service = "webapp-v2"
+    }
+  }
+]</code></pre>
+                                        <p class="mt-3 text-muted">
+                                            <small>Configure traffic routing, load balancing, and service policies with Consul Connect.</small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info alert-custom">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Integration Note:</strong> Nomad automatically registers services with Consul, and Traefik uses Consul for service discovery. This creates a seamless service mesh.
+                        </div>
+                    </section>
+
+                    <!-- Traefik Routing -->
+                    <section id="traefik" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-route me-3"></i>Traefik Routing</h2>
+                            <p>Modern HTTP reverse proxy and load balancer</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-lg-6 mb-4">
+                                <div class="card">
+                                    <div class="card-header bg-success text-white">
+                                        <h5 class="mb-0"><i class="fas fa-cog me-2"></i>Configuration</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('traefik-config', 'yaml')">YAML</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('traefik-config', 'toml')">TOML</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="traefik-config-yaml">
+                                            <pre><code class="language-yaml"># traefik.yml
+api:
+  dashboard: true
+  insecure: true
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: admin@example.com
+      storage: acme.json
+      httpChallenge:
+        entryPoint: web
+
+providers:
+  consulCatalog:
+    endpoints:
+      - "127.0.0.1:8500"
+    watch: true
+    exposedByDefault: false
+    defaultRule: "Host(`{{ .Name }}.local`)"
+    
+  file:
+    filename: dynamic.yml
+    watch: true
+
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addServicesLabels: true
+
+accessLog: {}
+
+tracing:
+  jaeger:
+    samplingServerURL: http://localhost:14268/api/sampling</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="traefik-config-toml">
+                                            <pre><code class="language-toml">[api]
+  dashboard = true
+  insecure = true
+
+[entryPoints]
+  [entryPoints.web]
+    address = ":80"
+  [entryPoints.websecure]
+    address = ":443"
+
+[certificatesResolvers.letsencrypt.acme]
+  email = "admin@example.com"
+  storage = "acme.json"
+  [certificatesResolvers.letsencrypt.acme.httpChallenge]
+    entryPoint = "web"
+
+[providers]
+  [providers.consulCatalog]
+    endpoints = ["127.0.0.1:8500"]
+    watch = true
+    exposedByDefault = false
+    defaultRule = "Host(`{{ .Name }}.local`)"
+
+[metrics.prometheus]
+  addEntryPointsLabels = true
+  addServicesLabels = true</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-6 mb-4">
+                                <div class="card">
+                                    <div class="card-header bg-success text-white">
+                                        <h5 class="mb-0"><i class="fas fa-tags me-2"></i>Service Tags</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <p>Configure routing through Consul service tags:</p>
+                                        <pre><code class="language-bash"># Basic routing
+traefik.enable=true
+traefik.http.routers.webapp.rule=Host(`app.example.com`)
+traefik.http.routers.webapp.tls=true
+traefik.http.routers.webapp.tls.certresolver=letsencrypt
+
+# Path-based routing
+traefik.http.routers.api.rule=Host(`api.example.com`) && PathPrefix(`/api`)
+traefik.http.middlewares.api-strip.stripprefix.prefixes=/api
+traefik.http.routers.api.middlewares=api-strip
+
+# Load balancer configuration
+traefik.http.services.webapp.loadbalancer.healthcheck.path=/health
+traefik.http.services.webapp.loadbalancer.healthcheck.interval=30s
+
+# Rate limiting
+traefik.http.middlewares.rate-limit.ratelimit.average=100
+traefik.http.middlewares.rate-limit.ratelimit.burst=50
+traefik.http.routers.webapp.middlewares=rate-limit</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-4">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Advanced Middleware</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <h6><i class="fas fa-lock me-2"></i>Authentication</h6>
+                                        <pre><code class="language-bash"># Basic Auth
+traefik.http.middlewares.auth.basicauth.users=admin:$2y$10$...
+
+# OAuth2
+traefik.http.middlewares.oauth.forwardauth.address=http://auth:4181
+traefik.http.middlewares.oauth.forwardauth.authResponseHeaders=X-Auth-User</code></pre>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <h6><i class="fas fa-compress-arrows-alt me-2"></i>Compression</h6>
+                                        <pre><code class="language-bash"># GZIP Compression
+traefik.http.middlewares.gzip.compress=true
+
+# Response modification
+traefik.http.middlewares.secure-headers.headers.customrequestheaders.X-Forwarded-Proto=https</code></pre>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <h6><i class="fas fa-tachometer-alt me-2"></i>Circuit Breaker</h6>
+                                        <pre><code class="language-bash"># Circuit breaker
+traefik.http.middlewares.circuit-breaker.circuitbreaker.expression=NetworkErrorRatio() > 0.3
+
+# Retry
+traefik.http.middlewares.retry.retry.attempts=3</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Integration Guides -->
+                    <section id="integration" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-puzzle-piece me-3"></i>Integration Guides</h2>
+                            <p>Comprehensive integration examples and patterns</p>
+                        </div>
+
+                        <div class="accordion" id="integrationAccordion">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="headingOne">
+                                    <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
+                                        <i class="fas fa-database me-3"></i>Database Integration with Vault
+                                    </button>
+                                </h2>
+                                <div id="collapseOne" class="accordion-collapse collapse show" data-bs-parent="#integrationAccordion">
+                                    <div class="accordion-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('db-integration', 'python')">Python</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('db-integration', 'javascript')">JavaScript</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="db-integration-python">
+                                            <pre><code class="language-python">import hvac
+import psycopg2
+from sqlalchemy import create_engine
+import os
+
+class VaultDatabaseConnector:
+    def __init__(self, vault_url="http://localhost:8200"):
+        self.vault_client = hvac.Client(url=vault_url)
+        # Use service account token in production
+        self.vault_client.token = os.getenv('VAULT_TOKEN')
+    
+    def get_database_credentials(self, path="database/creds/myapp"):
+        """Get dynamic database credentials from Vault"""
+        try:
+            response = self.vault_client.secrets.database.generate_credentials(
+                name='myapp'
+            )
+            return response['data']
+        except Exception as e:
+            print(f"Error getting credentials: {e}")
+            return None
+    
+    def create_connection(self):
+        """Create database connection with Vault credentials"""
+        creds = self.get_database_credentials()
+        if not creds:
+            raise Exception("Failed to get database credentials")
+        
+        connection_string = f"postgresql://{creds['username']}:{creds['password']}@localhost/myapp"
+        engine = create_engine(connection_string)
+        return engine
+    
+    def get_static_secret(self, path="secret/myapp/db"):
+        """Get static database configuration"""
+        try:
+            response = self.vault_client.secrets.kv.v2.read_secret_version(path=path)
+            return response['data']['data']
+        except Exception as e:
+            print(f"Error reading secret: {e}")
+            return None
+
+# Usage example
+connector = VaultDatabaseConnector()
+db_engine = connector.create_connection()
+
+# Use the connection
+with db_engine.connect() as conn:
+    result = conn.execute("SELECT version()")
+    print(result.fetchone())</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="db-integration-javascript">
+                                            <pre><code class="language-javascript">const vault = require("node-vault");
+const { Pool } = require("pg");
+
+class VaultDatabaseConnector {
+    constructor(vaultUrl = "http://localhost:8200") {
+        this.vault = vault({
+            apiVersion: 'v1',
+            endpoint: vaultUrl,
+            token: process.env.VAULT_TOKEN
+        });
+    }
+
+    async getDatabaseCredentials(path = "database/creds/myapp") {
+        try {
+            const response = await this.vault.read(path);
+            return response.data;
+        } catch (error) {
+            console.error("Error getting credentials:", error);
+            return null;
+        }
+    }
+
+    async createConnectionPool() {
+        const creds = await this.getDatabaseCredentials();
+        if (!creds) {
+            throw new Error("Failed to get database credentials");
+        }
+
+        return new Pool({
+            user: creds.username,
+            password: creds.password,
+            host: 'localhost',
+            database: 'myapp',
+            port: 5432,
+        });
+    }
+
+    async getStaticSecret(path = "secret/data/myapp/db") {
+        try {
+            const response = await this.vault.read(path);
+            return response.data.data;
+        } catch (error) {
+            console.error("Error reading secret:", error);
+            return null;
+        }
+    }
+}
+
+// Usage example
+(async () => {
+    const connector = new VaultDatabaseConnector();
+    const pool = await connector.createConnectionPool();
+    
+    const client = await pool.connect();
+    try {
+        const result = await client.query('SELECT version()');
+        console.log(result.rows[0]);
+    } finally {
+        client.release();
+    }
+})();</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="headingTwo">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo">
+                                        <i class="fas fa-cloud me-3"></i>Microservices Communication
+                                    </button>
+                                </h2>
+                                <div id="collapseTwo" class="accordion-collapse collapse" data-bs-parent="#integrationAccordion">
+                                    <div class="accordion-body">
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('microservices', 'python')">Python</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('microservices', 'javascript')">JavaScript</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="microservices-python">
+                                            <pre><code class="language-python">import consul
+import requests
+import json
+from typing import List, Optional
+
+class ServiceDiscovery:
+    def __init__(self, consul_host='localhost', consul_port=8500):
+        self.consul = consul.Consul(host=consul_host, port=consul_port)
+    
+    def register_service(self, name: str, address: str, port: int, 
+                        health_check_url: str = None, tags: List[str] = None):
+        """Register service with Consul"""
+        check = None
+        if health_check_url:
+            check = consul.Check.http(health_check_url, interval="10s")
+        
+        self.consul.agent.service.register(
+            name=name,
+            address=address,
+            port=port,
+            tags=tags or [],
+            check=check
+        )
+    
+    def discover_service(self, service_name: str) -> Optional[dict]:
+        """Discover healthy service instances"""
+        _, services = self.consul.health.service(service_name, passing=True)
+        if not services:
+            return None
+        
+        # Simple load balancing - return first healthy instance
+        service = services[0]['Service']
+        return {
+            'address': service['Address'],
+            'port': service['Port']
+        }
+    
+    def call_service(self, service_name: str, endpoint: str, method: str = 'GET', 
+                    data: dict = None) -> requests.Response:
+        """Make HTTP call to discovered service"""
+        service = self.discover_service(service_name)
+        if not service:
+            raise Exception(f"Service {service_name} not available")
+        
+        url = f"http://{service['address']}:{service['port']}{endpoint}"
+        
+        if method.upper() == 'GET':
+            return requests.get(url)
+        elif method.upper() == 'POST':
+            return requests.post(url, json=data)
+        elif method.upper() == 'PUT':
+            return requests.put(url, json=data)
+        elif method.upper() == 'DELETE':
+            return requests.delete(url)
+
+# Usage in a Flask application
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+sd = ServiceDiscovery()
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'healthy'})
+
+@app.route('/users/<int:user_id>/orders')
+def get_user_orders(user_id):
+    try:
+        # Call user service to validate user
+        user_response = sd.call_service('user-service', f'/users/{user_id}')
+        if user_response.status_code != 200:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Call order service to get orders
+        order_response = sd.call_service('order-service', f'/orders?user_id={user_id}')
+        return order_response.json()
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    # Register this service
+    sd.register_service(
+        name='api-gateway',
+        address='127.0.0.1',
+        port=5000,
+        health_check_url='http://127.0.0.1:5000/health',
+        tags=['api', 'gateway']
+    )
+    
+    app.run(host='0.0.0.0', port=5000)</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="microservices-javascript">
+                                            <pre><code class="language-javascript">const consul = require('consul');
+const axios = require('axios');
+const express = require('express');
+
+class ServiceDiscovery {
+    constructor(consulHost = 'localhost', consulPort = 8500) {
+        this.consul = consul({
+            host: consulHost,
+            port: consulPort
+        });
+    }
+
+    async registerService(name, address, port, healthCheckUrl, tags = []) {
+        const service = {
+            name: name,
+            address: address,
+            port: port,
+            tags: tags
+        };
+
+        if (healthCheckUrl) {
+            service.check = {
+                http: healthCheckUrl,
+                interval: '10s'
+            };
+        }
+
+        await this.consul.agent.service.register(service);
+    }
+
+    async discoverService(serviceName) {
+        try {
+            const result = await this.consul.health.service({
+                service: serviceName,
+                passing: true
+            });
+
+            if (result.length === 0) {
+                return null;
+            }
+
+            // Simple load balancing - return first healthy instance
+            const service = result[0].Service;
+            return {
+                address: service.Address,
+                port: service.Port
+            };
+        } catch (error) {
+            console.error('Service discovery error:', error);
+            return null;
+        }
+    }
+
+    async callService(serviceName, endpoint, method = 'GET', data = null) {
+        const service = await this.discoverService(serviceName);
+        if (!service) {
+            throw new Error(`Service ${serviceName} not available`);
+        }
+
+        const url = `http://${service.address}:${service.port}${endpoint}`;
+        const config = { method, url };
+
+        if (data && ['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
+            config.data = data;
+        }
+
+        return axios(config);
+    }
+}
+
+// Express application with service discovery
+const app = express();
+const sd = new ServiceDiscovery();
+
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+    res.json({ status: 'healthy' });
+});
+
+app.get('/users/:userId/orders', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Call user service to validate user
+        const userResponse = await sd.callService('user-service', `/users/${userId}`);
+        
+        if (userResponse.status !== 200) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Call order service to get orders
+        const orderResponse = await sd.callService('order-service', `/orders?user_id=${userId}`);
+        
+        res.json(orderResponse.data);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+
+// Register service and start server
+(async () => {
+    try {
+        await sd.registerService(
+            'api-gateway',
+            '127.0.0.1',
+            PORT,
+            `http://127.0.0.1:${PORT}/health`,
+            ['api', 'gateway']
+        );
+
+        app.listen(PORT, () => {
+            console.log(`API Gateway running on port ${PORT}`);
+        });
+    } catch (error) {
+        console.error('Failed to start service:', error);
+        process.exit(1);
+    }
+})();</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="headingThree">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree">
+                                        <i class="fas fa-certificate me-3"></i>TLS/SSL Certificate Management
+                                    </button>
+                                </h2>
+                                <div id="collapseThree" class="accordion-collapse collapse" data-bs-parent="#integrationAccordion">
+                                    <div class="accordion-body">
+                                        <h6>Vault PKI Engine Setup</h6>
+                                        <pre><code class="language-bash"># Enable PKI engine
+vault secrets enable pki
+vault secrets tune -max-lease-ttl=87600h pki
+
+# Generate root CA
+vault write -field=certificate pki/root/generate/internal \
+    common_name="example.com" \
+    ttl=87600h > CA_cert.crt
+
+# Configure URLs
+vault write pki/config/urls \
+    issuing_certificates="$VAULT_ADDR/v1/pki/ca" \
+    crl_distribution_points="$VAULT_ADDR/v1/pki/crl"
+
+# Create role
+vault write pki/roles/example-dot-com \
+    allowed_domains="example.com" \
+    allow_subdomains=true \
+    max_ttl="720h"</code></pre>
+
+                                        <h6 class="mt-4">Automatic Certificate Generation</h6>
+                                        <div class="code-switcher">
+                                            <button class="btn btn-sm btn-primary active" onclick="showCode('cert-management', 'python')">Python</button>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('cert-management', 'javascript')">JavaScript</button>
+                                        </div>
+                                        
+                                        <div class="code-example active" id="cert-management-python">
+                                            <pre><code class="language-python">import hvac
+import ssl
+import os
+from datetime import datetime, timedelta
+
+class CertificateManager:
+    def __init__(self, vault_url="http://localhost:8200"):
+        self.vault = hvac.Client(url=vault_url)
+        self.vault.token = os.getenv('VAULT_TOKEN')
+    
+    def generate_certificate(self, common_name, alt_names=None, ttl="720h"):
+        """Generate certificate from Vault PKI"""
+        data = {
+            'common_name': common_name,
+            'ttl': ttl
+        }
+        
+        if alt_names:
+            data['alt_names'] = ','.join(alt_names)
+        
+        response = self.vault.write('pki/issue/example-dot-com', **data)
+        return response['data']
+    
+    def save_certificate(self, cert_data, cert_path, key_path):
+        """Save certificate and key to files"""
+        with open(cert_path, 'w') as f:
+            f.write(cert_data['certificate'])
+            f.write('\n')
+            f.write(cert_data['issuing_ca'])
+        
+        with open(key_path, 'w') as f:
+            f.write(cert_data['private_key'])
+        
+        # Set secure permissions
+        os.chmod(key_path, 0o600)
+    
+    def check_certificate_expiry(self, cert_path, days_before=30):
+        """Check if certificate expires within specified days"""
+        with open(cert_path, 'r') as f:
+            cert_pem = f.read()
+        
+        cert = ssl.PEM_cert_to_DER_cert(cert_pem)
+        cert_ssl = ssl.DER_cert_to_PEM_cert(cert)
+        
+        # Parse expiration (simplified - use cryptography library for production)
+        import re
+        expiry_match = re.search(r'Not After : (.+)', cert_ssl)
+        if expiry_match:
+            expiry_str = expiry_match.group(1)
+            # Parse and compare with current date
+            # Return True if renewal needed
+        
+        return False
+    
+    def auto_renew_certificate(self, common_name, cert_path, key_path):
+        """Automatically renew certificate if needed"""
+        if self.check_certificate_expiry(cert_path):
+            cert_data = self.generate_certificate(common_name)
+            self.save_certificate(cert_data, cert_path, key_path)
+            return True
+        return False
+
+# Usage example
+cert_manager = CertificateManager()
+
+# Generate certificate for web service
+cert_data = cert_manager.generate_certificate(
+    common_name="webapp.example.com",
+    alt_names=["api.example.com", "admin.example.com"]
+)
+
+# Save to files
+cert_manager.save_certificate(
+    cert_data, 
+    '/etc/ssl/certs/webapp.crt',
+    '/etc/ssl/private/webapp.key'
+)</code></pre>
+                                        </div>
+                                        
+                                        <div class="code-example" id="cert-management-javascript">
+                                            <pre><code class="language-javascript">const vault = require('node-vault');
+const fs = require('fs').promises;
+const path = require('path');
+
+class CertificateManager {
+    constructor(vaultUrl = "http://localhost:8200") {
+        this.vault = vault({
+            apiVersion: 'v1',
+            endpoint: vaultUrl,
+            token: process.env.VAULT_TOKEN
+        });
+    }
+
+    async generateCertificate(commonName, altNames = null, ttl = "720h") {
+        const data = {
+            common_name: commonName,
+            ttl: ttl
+        };
+
+        if (altNames) {
+            data.alt_names = altNames.join(',');
+        }
+
+        const response = await this.vault.write('pki/issue/example-dot-com', data);
+        return response.data;
+    }
+
+    async saveCertificate(certData, certPath, keyPath) {
+        const certContent = certData.certificate + '\n' + certData.issuing_ca;
+        
+        await fs.writeFile(certPath, certContent);
+        await fs.writeFile(keyPath, certData.private_key);
+        
+        // Set secure permissions on private key
+        await fs.chmod(keyPath, 0o600);
+    }
+
+    async checkCertificateExpiry(certPath, daysBefore = 30) {
+        try {
+            const certContent = await fs.readFile(certPath, 'utf8');
+            // Use node-forge or similar library to parse certificate
+            // and check expiration date
+            return false; // Simplified
+        } catch (error) {
+            console.error('Error checking certificate:', error);
+            return true; // Assume renewal needed on error
+        }
+    }
+
+    async autoRenewCertificate(commonName, certPath, keyPath) {
+        const needsRenewal = await this.checkCertificateExpiry(certPath);
+        
+        if (needsRenewal) {
+            const certData = await this.generateCertificate(commonName);
+            await this.saveCertificate(certData, certPath, keyPath);
+            return true;
+        }
+        
+        return false;
+    }
+
+    async setupAutoRenewal(commonName, certPath, keyPath, intervalHours = 24) {
+        setInterval(async () => {
+            try {
+                const renewed = await this.autoRenewCertificate(commonName, certPath, keyPath);
+                if (renewed) {
+                    console.log(`Certificate renewed for ${commonName}`);
+                    // Trigger service restart or reload
+                    // process.emit('SIGHUP'); // Reload configuration
+                }
+            } catch (error) {
+                console.error('Auto-renewal error:', error);
+            }
+        }, intervalHours * 60 * 60 * 1000);
+    }
+}
+
+// Usage example
+(async () => {
+    const certManager = new CertificateManager();
+
+    // Generate certificate
+    const certData = await certManager.generateCertificate(
+        "webapp.example.com",
+        ["api.example.com", "admin.example.com"]
+    );
+
+    // Save certificate
+    await certManager.saveCertificate(
+        certData,
+        '/etc/ssl/certs/webapp.crt',
+        '/etc/ssl/private/webapp.key'
+    );
+
+    // Setup auto-renewal
+    await certManager.setupAutoRenewal(
+        "webapp.example.com",
+        '/etc/ssl/certs/webapp.crt',
+        '/etc/ssl/private/webapp.key'
+    );
+})();</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Scaling Strategies -->
+                    <section id="scaling" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-expand-arrows-alt me-3"></i>Scaling Strategies</h2>
+                            <p>Horizontal and vertical scaling patterns for high availability</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-lg-4 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-primary text-white">
+                                        <h5 class="mb-0"><i class="fas fa-arrows-alt-h me-2"></i>Horizontal Scaling</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <ul class="list-unstyled">
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Scale services based on CPU/Memory</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Load balancing across instances</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Auto-scaling with metrics</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Blue-green deployments</li>
+                                        </ul>
+                                        <pre><code class="language-hcl">group "web" {
+  count = 5
+  
+  scaling {
+    enabled = true
+    min     = 2
+    max     = 10
+    
+    policy {
+      cooldown            = "1m"
+      evaluation_interval = "30s"
+      
+      check "cpu" {
+        source = "prometheus"
+        query  = "avg(cpu_usage)"
+        
+        strategy "target-value" {
+          target = 70
+        }
+      }
+    }
+  }
+}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-4 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-success text-white">
+                                        <h5 class="mb-0"><i class="fas fa-arrows-alt-v me-2"></i>Vertical Scaling</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <ul class="list-unstyled">
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Resource allocation tuning</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Memory and CPU limits</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Storage optimization</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Performance monitoring</li>
+                                        </ul>
+                                        <pre><code class="language-hcl">task "web" {
+  resources {
+    cpu    = 1000
+    memory = 2048
+    
+    device "nvidia/gpu" {
+      count = 1
+      
+      constraint {
+        attribute = "${device.attr.compute_capability}"
+        operator  = ">="
+        value     = "6.0"
+      }
+    }
+  }
+}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-4 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-warning text-dark">
+                                        <h5 class="mb-0"><i class="fas fa-globe me-2"></i>Multi-Region</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <ul class="list-unstyled">
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Cross-datacenter replication</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>WAN federation</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Disaster recovery</li>
+                                            <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Global load balancing</li>
+                                        </ul>
+                                        <pre><code class="language-hcl">job "webapp" {
+  datacenters = ["dc1", "dc2", "dc3"]
+  type = "service"
+  
+  constraint {
+    attribute = "${datacenter}"
+    operator  = "regexp"
+    value     = "dc[1-3]"
+  }
+  
+  spread {
+    attribute = "${datacenter}"
+    weight    = 100
+  }
+}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Auto-Scaling Configuration</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="code-switcher">
+                                    <button class="btn btn-sm btn-primary active" onclick="showCode('auto-scaling', 'python')">Python</button>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="showCode('auto-scaling', 'javascript')">JavaScript</button>
+                                </div>
+                                
+                                <div class="code-example active" id="auto-scaling-python">
+                                    <pre><code class="language-python">import requests
+import time
+from typing import Dict, Any
+
+class NomadAutoScaler:
+    def __init__(self, nomad_url="http://localhost:4646", prometheus_url="http://localhost:9090"):
+        self.nomad_url = nomad_url
+        self.prometheus_url = prometheus_url
+    
+    def get_job_status(self, job_id: str) -> Dict[str, Any]:
+        """Get current job status from Nomad"""
+        response = requests.get(f"{self.nomad_url}/v1/job/{job_id}")
+        return response.json()
+    
+    def get_metric_value(self, query: str) -> float:
+        """Get metric value from Prometheus"""
+        params = {'query': query}
+        response = requests.get(f"{self.prometheus_url}/api/v1/query", params=params)
+        result = response.json()
+        
+        if result['data']['result']:
+            return float(result['data']['result'][0]['value'][1])
+        return 0.0
+    
+    def scale_job(self, job_id: str, group_name: str, new_count: int):
+        """Scale job group to new count"""
+        payload = {
+            "TaskGroups": {
+                group_name: new_count
+            }
+        }
+        
+        response = requests.post(
+            f"{self.nomad_url}/v1/job/{job_id}/scale",
+            json=payload
+        )
+        return response.json()
+    
+    def evaluate_scaling_policy(self, job_id: str, group_name: str, 
+                               cpu_threshold: float = 70.0, 
+                               memory_threshold: float = 80.0) -> int:
+        """Evaluate if scaling is needed and return desired count"""
+        current_status = self.get_job_status(job_id)
+        current_count = current_status['TaskGroups'][0]['Count']
+        
+        # Get current metrics
+        cpu_usage = self.get_metric_value(
+            f'avg(rate(container_cpu_usage_seconds_total{{job="{job_id}"}}[5m])) * 100'
+        )
+        memory_usage = self.get_metric_value(
+            f'avg(container_memory_usage_bytes{{job="{job_id}"}}) / avg(container_spec_memory_limit_bytes{{job="{job_id}"}}) * 100'
+        )
+        
+        print(f"Current metrics - CPU: {cpu_usage:.1f}%, Memory: {memory_usage:.1f}%")
+        
+        # Scaling logic
+        if cpu_usage > cpu_threshold or memory_usage > memory_threshold:
+            # Scale up
+            new_count = min(current_count + 2, 10)  # Max 10 instances
+            return new_count
+        elif cpu_usage < cpu_threshold * 0.3 and memory_usage < memory_threshold * 0.3:
+            # Scale down
+            new_count = max(current_count - 1, 2)  # Min 2 instances
+            return new_count
+        
+        return current_count
+    
+    def run_autoscaler(self, job_id: str, group_name: str, interval: int = 60):
+        """Run autoscaler loop"""
+        print(f"Starting autoscaler for {job_id}/{group_name}")
+        
+        while True:
+            try:
+                current_count = self.get_job_status(job_id)['TaskGroups'][0]['Count']
+                desired_count = self.evaluate_scaling_policy(job_id, group_name)
+                
+                if desired_count != current_count:
+                    print(f"Scaling from {current_count} to {desired_count} instances")
+                    result = self.scale_job(job_id, group_name, desired_count)
+                    print(f"Scaling result: {result}")
+                else:
+                    print(f"No scaling needed, keeping {current_count} instances")
+                
+                time.sleep(interval)
+                
+            except Exception as e:
+                print(f"Error in autoscaler: {e}")
+                time.sleep(interval)
+
+# Usage
+if __name__ == "__main__":
+    scaler = NomadAutoScaler()
+    scaler.run_autoscaler("webapp", "web")</code></pre>
+                                </div>
+                                
+                                <div class="code-example" id="auto-scaling-javascript">
+                                    <pre><code class="language-javascript">const axios = require('axios');
+
+class NomadAutoScaler {
+    constructor(nomadUrl = "http://localhost:4646", prometheusUrl = "http://localhost:9090") {
+        this.nomadUrl = nomadUrl;
+        this.prometheusUrl = prometheusUrl;
+    }
+
+    async getJobStatus(jobId) {
+        const response = await axios.get(`${this.nomadUrl}/v1/job/${jobId}`);
+        return response.data;
+    }
+
+    async getMetricValue(query) {
+        const response = await axios.get(`${this.prometheusUrl}/api/v1/query`, {
+            params: { query }
+        });
+        
+        const result = response.data;
+        if (result.data.result && result.data.result.length > 0) {
+            return parseFloat(result.data.result[0].value[1]);
+        }
+        return 0.0;
+    }
+
+    async scaleJob(jobId, groupName, newCount) {
+        const payload = {
+            TaskGroups: {
+                [groupName]: newCount
+            }
+        };
+
+        const response = await axios.post(
+            `${this.nomadUrl}/v1/job/${jobId}/scale`,
+            payload
+        );
+        return response.data;
+    }
+
+    async evaluateScalingPolicy(jobId, groupName, cpuThreshold = 70.0, memoryThreshold = 80.0) {
+        const currentStatus = await this.getJobStatus(jobId);
+        const currentCount = currentStatus.TaskGroups[0].Count;
+
+        // Get current metrics
+        const cpuUsage = await this.getMetricValue(
+            `avg(rate(container_cpu_usage_seconds_total{job="${jobId}"}[5m])) * 100`
+        );
+        const memoryUsage = await this.getMetricValue(
+            `avg(container_memory_usage_bytes{job="${jobId}"}) / avg(container_spec_memory_limit_bytes{job="${jobId}"}) * 100`
+        );
+
+        console.log(`Current metrics - CPU: ${cpuUsage.toFixed(1)}%, Memory: ${memoryUsage.toFixed(1)}%`);
+
+        // Scaling logic
+        if (cpuUsage > cpuThreshold || memoryUsage > memoryThreshold) {
+            // Scale up
+            return Math.min(currentCount + 2, 10); // Max 10 instances
+        } else if (cpuUsage < cpuThreshold * 0.3 && memoryUsage < memoryThreshold * 0.3) {
+            // Scale down
+            return Math.max(currentCount - 1, 2); // Min 2 instances
+        }
+
+        return currentCount;
+    }
+
+    async runAutoscaler(jobId, groupName, interval = 60000) {
+        console.log(`Starting autoscaler for ${jobId}/${groupName}`);
+
+        const scaleLoop = async () => {
+            try {
+                const currentStatus = await this.getJobStatus(jobId);
+                const currentCount = currentStatus.TaskGroups[0].Count;
+                const desiredCount = await this.evaluateScalingPolicy(jobId, groupName);
+
+                if (desiredCount !== currentCount) {
+                    console.log(`Scaling from ${currentCount} to ${desiredCount} instances`);
+                    const result = await this.scaleJob(jobId, groupName, desiredCount);
+                    console.log('Scaling result:', result);
+                } else {
+                    console.log(`No scaling needed, keeping ${currentCount} instances`);
+                }
+            } catch (error) {
+                console.error('Error in autoscaler:', error.message);
+            }
+
+            setTimeout(scaleLoop, interval);
+        };
+
+        scaleLoop();
+    }
+}
+
+// Usage
+if (require.main === module) {
+    const scaler = new NomadAutoScaler();
+    scaler.runAutoscaler("webapp", "web");
+}</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Security Best Practices -->
+                    <section id="security" class="mb-5">
+                        <div class="section-header">
+                            <h2><i class="fas fa-shield-alt me-3"></i>Security Best Practices</h2>
+                            <p>Comprehensive security guidelines for production deployments</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-danger text-white">
+                                        <h5 class="mb-0"><i class="fas fa-lock me-2"></i>Vault Security</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="alert alert-warning alert-custom">
+                                            <i class="fas fa-exclamation-triangle me-2"></i>
+                                            <strong>Critical:</strong> Never use dev mode in production
+                                        </div>
+                                        
+                                        <h6>Authentication Methods</h6>
+                                        <pre><code class="language-bash"># Enable AppRole for applications
+vault auth enable approle
+
+vault write auth/approle/role/webapp \
+    token_policies="webapp-policy" \
+    token_ttl=1h \
+    token_max_ttl=4h \
+    bind_secret_id=true
+
+# Enable Kubernetes auth for K8s deployments
+vault auth enable kubernetes
+
+vault write auth/kubernetes/config \
+    token_reviewer_jwt="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+    kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443" \
+    kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt</code></pre>
+
+                                        <h6 class="mt-3">Policy Examples</h6>
+                                        <pre><code class="language-hcl"># webapp-policy.hcl
+path "secret/data/webapp/*" {
+  capabilities = ["read"]
+}
+
+path "database/creds/webapp" {
+  capabilities = ["read"]
+}
+
+path "pki/issue/webapp" {
+  capabilities = ["create", "update"]
+}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-success text-white">
+                                        <h5 class="mb-0"><i class="fas fa-network-wired me-2"></i>Network Security</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <h6>TLS Configuration</h6>
+                                        <pre><code class="language-yaml"># consul.yml
+ports:
+  https: 8501
+tls:
+  defaults:
+    verify_incoming: true
+    verify_outgoing: true
+    ca_file: "/etc/consul/ca.pem"
+    cert_file: "/etc/consul/server.pem"
+    key_file: "/etc/consul/server-key.pem"</code></pre>
+
+                                        <h6>Nomad mTLS</h6>
+                                        <pre><code class="language-hcl"># nomad.hcl
+tls {
+  http = true
+  rpc  = true
+
+  ca_file   = "/etc/nomad/ca.pem"
+  cert_file = "/etc/nomad/server.pem"
+  key_file  = "/etc/nomad/server-key.pem"
+
+  verify_server_hostname = true
+  verify_https_client    = true
+}</code></pre>
+
+                                        <h6>Firewall Rules</h6>
+                                        <pre><code class="language-bash"># Allow only necessary ports
+ufw allow 8200/tcp  # Vault
+ufw allow 8500/tcp  # Consul HTTP
+ufw allow 8501/tcp  # Consul HTTPS
+ufw allow 4646/tcp  # Nomad HTTP
+ufw allow 80/tcp    # Traefik HTTP
+ufw allow 443/tcp   # Traefik HTTPS</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header bg-warning text-dark">
+                                <h5 class="mb-0"><i class="fas fa-user-shield me-2"></i>Access Control & RBAC</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-lg-4">
+                                        <h6>Consul ACLs</h6>
+                                        <pre><code class="language-hcl"># operator.hcl
+acl = {
+  enabled = true
+  default_policy = "deny"
+  enable_token_persistence = true
+}
+
+# Service policy
+service "webapp" {
+  policy = "write"
+}
+
+node_prefix "" {
+  policy = "read"
+}</code></pre>
+                                    </div>
+                                    
+                                    <div class="col-lg-4">
+                                        <h6>Nomad ACLs</h6>
+                                        <pre><code class="language-hcl"># developer.policy
+namespace "default" {
+  policy = "read"
+  
+  capabilities = [
+    "submit-job",
+    "read-logs"
+  ]
+}
+
+node {
+  policy = "read"
+}</code></pre>
+                                    </div>
+                                    
+                                    <div class="col-lg-4">
+                                        <h6>Vault Policies</h6>
+                                        <pre><code class="language-hcl"># database-admin.hcl
+path "database/*" {
+  capabilities = [
+    "create", "read", 
+    "update", "delete", 
+    "list"
+  ]
+}
+
+path "sys/mounts/database" {
+  capabilities = ["read"]
+}</code></pre>
+                                    </div>
+                                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Monitoring Setup -->
+    <section id="monitoring" class="mb-5">
+        <div class="section-header">
+            <h2><i class="fas fa-chart-bar me-3"></i>Monitoring Setup</h2>
+            <p>Comprehensive observability with metrics, logs, and tracing</p>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Prometheus Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <pre><code class="language-yaml"># prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "nomad_rules.yml"
+  - "consul_rules.yml"
+  - "vault_rules.yml"
+
+scrape_configs:
+  - job_name: 'nomad'
+    consul_sd_configs:
+      - server: 'localhost:8500'
+        services: ['nomad-client', 'nomad']
+    relabel_configs:
+      - source_labels: [__meta_consul_tags]
+        regex: '(.*)http(.*)'
+        action: keep
+      - source_labels: [__meta_consul_service]
+        target_label: job
+
+  - job_name: 'consul'
+    static_configs:
+      - targets: ['localhost:8500']
+
+  - job_name: 'vault'
+    static_configs:
+      - targets: ['localhost:8200']
+    metrics_path: /v1/sys/metrics
+    params:
+      format: ['prometheus']
+
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['localhost:8080']</code></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-chart-area me-2"></i>Grafana Dashboards</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="list-group list-group-flush">
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">Nomad Cluster Overview</h6>
+                                    <p class="mb-1 text-muted">Jobs, allocations, resource usage</p>
+                                </div>
+                                <span class="badge bg-primary rounded-pill">ID: 3170</span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">Consul Service Mesh</h6>
+                                    <p class="mb-1 text-muted">Service discovery, health checks</p>
+                                </div>
+                                <span class="badge bg-success rounded-pill">ID: 10642</span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">Vault Operations</h6>
+                                    <p class="mb-1 text-muted">Secrets access, authentication</p>
+                                </div>
+                                <span class="badge bg-warning rounded-pill">ID: 12904</span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">Traefik Load Balancer</h6>
+                                    <p class="mb-1 text-muted">Request rates, response times</p>
+                                </div>
+                                <span class="badge bg-info rounded-pill">ID: 4475</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <h6>Quick Import</h6>
+                            <pre><code class="language-bash"># Import dashboards
+curl -X POST \
+  http://admin:admin@localhost:3000/api/dashboards/db \
+  -H 'Content-Type: application/json' \
+  -d @nomad-dashboard.json</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0"><i class="fas fa-search me-2"></i>Logging with ELK Stack</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-lg-4">
+                        <h6>Filebeat Configuration</h6>
+                        <pre><code class="language-yaml"># filebeat.yml
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /opt/nomad/logs/*.log
+    - /opt/consul/logs/*.log
+    - /opt/vault/logs/*.log
+  fields:
+    component: hashicorp
+    
+output.elasticsearch:
+  hosts: ["localhost:9200"]
+  
+setup.kibana:
+  host: "localhost:5601"</code></pre>
+                    </div>
+                    
+                    <div class="col-lg-4">
+                        <h6>Logstash Pipeline</h6>
+                        <pre><code class="language-ruby"># logstash.conf
+input {
+  beats {
+    port => 5044
+  }
+}
+
+filter {
+  if [fields][component] == "hashicorp" {
+    grok {
+      match => {
+        "message" => "%{TIMESTAMP_ISO8601:timestamp} \[%{LOGLEVEL:level}\] %{GREEDYDATA:log_message}"
+      }
+    }
+    
+    date {
+      match => ["timestamp", "ISO8601"]
+    }
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["localhost:9200"]
+    index => "hashicorp-logs-%{+YYYY.MM.dd}"
+  }
+}</code></pre>
+                    </div>
+                    
+                    <div class="col-lg-4">
+                        <h6>Application Logging</h6>
+                        <div class="code-switcher">
+                            <button class="btn btn-sm btn-primary active" onclick="showCode('app-logging', 'python')">Python</button>
+                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('app-logging', 'javascript')">JavaScript</button>
+                        </div>
+                        
+                        <div class="code-example active" id="app-logging-python">
+                            <pre><code class="language-python">import logging
+import json
+from pythonjsonlogger import jsonlogger
+
+# Configure structured logging
+logHandler = logging.StreamHandler()
+formatter = jsonlogger.JsonFormatter()
+logHandler.setFormatter(formatter)
+
+logger = logging.getLogger()
+logger.addHandler(logHandler)
+logger.setLevel(logging.INFO)
+
+# Usage
+logger.info("Service started", extra={
+    "service": "webapp",
+    "version": "1.0.0",
+    "consul_service_id": "webapp-1"
+})</code></pre>
+                        </div>
+                        
+                        <div class="code-example" id="app-logging-javascript">
+                            <pre><code class="language-javascript">const winston = require('winston');
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  defaultMeta: { 
+    service: 'webapp',
+    version: '1.0.0'
+  },
+  transports: [
+    new winston.transports.Console()
+  ]
+});
+
+// Usage
+logger.info('Service started', {
+  consul_service_id: 'webapp-1',
+  health_check_status: 'passing'
+});</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0"><i class="fas fa-route me-2"></i>Distributed Tracing</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-lg-6">
+                        <h6>Jaeger Configuration</h6>
+                        <pre><code class="language-yaml"># docker-compose.jaeger.yml
+version: '3.8'
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_ZIPKIN_HTTP_PORT=9411</code></pre>
+
+                        <h6 class="mt-3">Consul Connect Integration</h6>
+                        <pre><code class="language-hcl">Kind = "proxy-defaults"
+Name = "global"
+Config = {
+  "envoy_tracing_json" = <<EOF
+    {
+      "http": {
+        "name": "envoy.tracers.zipkin",
+        "typed_config": {
+          "@type": "type.googleapis.com/envoy.config.trace.v3.ZipkinConfig",
+          "collector_cluster": "jaeger",
+          "collector_endpoint_version": "HTTP_JSON",
+          "collector_endpoint": "/api/v2/spans",
+          "shared_span_context": false
+        }
+      }
+    }
+EOF
+}</code></pre>
+                    </div>
+                    
+                    <div class="col-lg-6">
+                        <h6>Application Tracing</h6>
+                        <div class="code-switcher">
+                            <button class="btn btn-sm btn-primary active" onclick="showCode('app-tracing', 'python')">Python</button>
+                            <button class="btn btn-sm btn-outline-primary" onclick="showCode('app-tracing', 'javascript')">JavaScript</button>
+                        </div>
+                        
+                        <div class="code-example active" id="app-tracing-python">
+                            <pre><code class="language-python">from jaeger_client import Config
+import opentracing
+
+# Initialize tracer
+config = Config(
+    config={
+        'sampler': {'type': 'const', 'param': 1},
+        'local_agent': {
+            'reporting_host': 'localhost',
+            'reporting_port': 6831,
+        },
+        'logging': True,
+    },
+    service_name='webapp'
+)
+
+tracer = config.initialize_tracer()
+opentracing.set_global_tracer(tracer)
+
+# Usage in request handler
+def handle_request():
+    with tracer.start_span('handle_request') as span:
+        span.set_tag('http.method', 'GET')
+        span.set_tag('http.url', '/api/users')
+        
+        # Database call
+        with tracer.start_span('database_query', child_of=span) as db_span:
+            db_span.set_tag('db.statement', 'SELECT * FROM users')
+            # ... database logic
+            
+        span.set_tag('http.status_code', 200)</code></pre>
+                        </div>
+                        
+                        <div class="code-example" id="app-tracing-javascript">
+                            <pre><code class="language-javascript">const initJaegerTracer = require("jaeger-client").initTracer;
+
+const config = {
+  serviceName: 'webapp',
+  sampler: {
+    type: 'const',
+    param: 1,
+  },
+  reporter: {
+    logSpans: true,
+    agentHost: 'localhost',
+    agentPort: 6832,
+  },
+};
+
+const tracer = initJaegerTracer(config);
+
+// Express middleware
+app.use((req, res, next) => {
+  const span = tracer.startSpan(`${req.method} ${req.path}`);
+  
+  span.setTag('http.method', req.method);
+  span.setTag('http.url', req.url);
+  
+  res.on('finish', () => {
+    span.setTag('http.status_code', res.statusCode);
+    span.finish();
+  });
+  
+  req.span = span;
+  next();
+});
+
+// Usage in route
+app.get('/api/users', async (req, res) => {
+  const dbSpan = tracer.startSpan('database_query', {
+    childOf: req.span
+  });
+  
+  dbSpan.setTag('db.statement', 'SELECT * FROM users');
+  
+  try {
+    const users = await db.query('SELECT * FROM users');
+    res.json(users);
+  } finally {
+    dbSpan.finish();
+  }
+});</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-3 col-md-6 mb-4">
+                    <h5>Components</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#vault">Vault</a></li>
+                        <li><a href="#nomad">Nomad</a></li>
+                        <li><a href="#consul">Consul</a></li>
+                        <li><a href="#traefik">Traefik</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-3 col-md-6 mb-4">
+                    <h5>Guides</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#getting-started">Getting Started</a></li>
+                        <li><a href="#integration">Integration</a></li>
+                        <li><a href="#scaling">Scaling</a></li>
+                        <li><a href="#security">Security</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-3 col-md-6 mb-4">
+                    <h5>Operations</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#monitoring">Monitoring</a></li>
+                        <li><a href="#">Troubleshooting</a></li>
+                        <li><a href="#">Best Practices</a></li>
+                        <li><a href="#">Performance</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-3 col-md-6 mb-4">
+                    <h5>Resources</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="https://www.vaultproject.io/" target="_blank">Vault Docs</a></li>
+                        <li><a href="https://www.nomadproject.io/" target="_blank">Nomad Docs</a></li>
+                        <li><a href="https://www.consul.io/" target="_blank">Consul Docs</a></li>
+                        <li><a href="https://traefik.io/" target="_blank">Traefik Docs</a></li>
+                    </ul>
+                </div>
+            </div>
+            <hr class="my-4">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <p class="mb-0">&copy; 2024 Infrastructure Documentation. Built with Bootstrap & Font Awesome.</p>
+                </div>
+                <div class="col-md-4 text-md-end">
+                    <a href="#" class="text-muted me-3"><i class="fab fa-github"></i></a>
+                    <a href="#" class="text-muted me-3"><i class="fab fa-docker"></i></a>
+                    <a href="#" class="text-muted"><i class="fas fa-book"></i></a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Back to Top Button -->
+    <button class="back-to-top" id="backToTop">
+        <i class="fas fa-arrow-up"></i>
+    </button>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Prism.js for syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-hcl.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-toml.min.js"></script>
+
+    <script>
+        // Code switcher functionality
+        function showCode(section, language) {
+            // Hide all code examples in this section
+            const examples = document.querySelectorAll(`#${section}-${language.replace('#', '')}, #${section}-bash, #${section}-python, #${section}-javascript, #${section}-yaml, #${section}-json, #${section}-hcl, #${section}-toml, #${section}-docker`);
+            examples.forEach(example => {
+                if (example) example.classList.remove('active');
+            });
+            
+            // Show selected example
+            const targetExample = document.getElementById(`${section}-${language}`);
+            if (targetExample) {
+                targetExample.classList.add('active');
+            }
+            
+            // Update button states
+            const buttons = document.querySelectorAll(`[onclick="showCode('${section}', '${language}')"]`)[0];
+            if (buttons) {
+                const parentSwitcher = buttons.closest('.code-switcher');
+                if (parentSwitcher) {
+                    parentSwitcher.querySelectorAll('.btn').forEach(btn => {
+                        btn.classList.remove('btn-primary');
+                        btn.classList.add('btn-outline-primary');
+                    });
+                    buttons.classList.remove('btn-outline-primary');
+                    buttons.classList.add('btn-primary');
+                }
+            }
+        }
+
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Sidebar navigation highlighting
+        function updateActiveNavigation() {
+            const sections = document.querySelectorAll('section[id]');
+            const navLinks = document.querySelectorAll('.sidebar-nav a');
+            
+            let currentSection = '';
+            sections.forEach(section => {
+                const rect = section.getBoundingClientRect();
+                if (rect.top <= 100) {
+                    currentSection = section.id;
+                }
+            });
+            
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === `#${currentSection}`) {
+                    link.classList.add('active');
+                }
+            });
+        }
+
+        // Back to top button functionality
+        const backToTopButton = document.getElementById('backToTop');
+        
+        window.addEventListener('scroll', () => {
+            if (window.pageYOffset > 100) {
+                backToTopButton.style.display = 'flex';
+            } else {
+                backToTopButton.style.display = 'none';
+            }
+            
+            updateActiveNavigation();
+        });
+
+        backToTopButton.addEventListener('click', () => {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+
+        // Architecture diagram interactivity
+        document.querySelectorAll('.architecture-diagram svg rect, .architecture-diagram svg text').forEach(element => {
+            element.addEventListener('mouseenter', function() {
+                this.style.filter = 'brightness(1.1)';
+                this.style.cursor = 'pointer';
+            });
+            
+            element.addEventListener('mouseleave', function() {
+                this.style.filter = 'none';
+            });
+        });
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            updateActiveNavigation();
+            
+            // Set first code example as active for each section
+            document.querySelectorAll('.code-switcher').forEach(switcher => {
+                const firstButton = switcher.querySelector('.btn');
+                if (firstButton) {
+                    firstButton.click();
+                }
+            });
+        });
+
+        // Search functionality (basic)
+        function searchDocumentation(query) {
+            const sections = document.querySelectorAll('section');
+            const results = [];
+            
+            sections.forEach(section => {
+                const content = section.textContent.toLowerCase();
+                if (content.includes(query.toLowerCase())) {
+                    results.push({
+                        id: section.id,
+                        title: section.querySelector('h2').textContent,
+                        snippet: content.substring(0, 200) + '...'
+                    });
+                }
+            });
+            
+            return results;
+        }
+
+        // Copy code functionality
+        document.querySelectorAll('pre code').forEach(codeBlock => {
+            const button = document.createElement('button');
+            button.className = 'btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-2';
+            button.innerHTML = '<i class="fas fa-copy"></i>';
+            button.style.opacity = '0.7';
+            
+            const pre = codeBlock.parentElement;
+            pre.style.position = 'relative';
+            pre.appendChild(button);
+            
+            button.addEventListener('click', () => {
+                navigator.clipboard.writeText(codeBlock.textContent).then(() => {
+                    button.innerHTML = '<i class="fas fa-check text-success"></i>';
+                    setTimeout(() => {
+                        button.innerHTML = '<i class="fas fa-copy"></i>';
+                    }, 2000);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

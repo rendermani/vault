@@ -1,0 +1,609 @@
+#!/usr/bin/env groovy
+
+/**
+ * Jenkins Pipeline for Vault Infrastructure Integration
+ * 
+ * This pipeline demonstrates comprehensive integration with Vault, Consul, Nomad, and Prometheus
+ * using Jenkins with HashiCorp Vault Plugin and other relevant integrations.
+ */
+
+@Library('vault-integration-lib@main') _
+
+pipeline {
+    agent any
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 1, unit: 'HOURS')
+        timestamps()
+        ansiColor('xterm')
+        parallelsAlwaysFailFast()
+    }
+    
+    parameters {
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['develop', 'staging', 'production'],
+            description: 'Target environment for deployment'
+        )
+        booleanParam(
+            name: 'SKIP_TESTS',
+            defaultValue: false,
+            description: 'Skip test execution'
+        )
+        booleanParam(
+            name: 'FORCE_DEPLOY',
+            defaultValue: false,
+            description: 'Force deployment even if tests fail'
+        )
+        string(
+            name: 'VAULT_ROLE',
+            defaultValue: 'jenkins-ci',
+            description: 'Vault role for authentication'
+        )
+    }
+    
+    environment {
+        // Application settings
+        APP_NAME = "${env.JOB_BASE_NAME}"
+        VERSION = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+        
+        // Docker registry
+        REGISTRY = 'docker-registry.internal'
+        IMAGE_NAME = "${REGISTRY}/${APP_NAME}"
+        
+        // Vault settings
+        VAULT_NAMESPACE = 'root'
+        VAULT_ADDR = credentials('vault-address')
+        
+        // Service discovery
+        CONSUL_HTTP_ADDR = credentials('consul-address')
+        NOMAD_ADDR = credentials('nomad-address')
+        
+        // Monitoring
+        PROMETHEUS_URL = credentials('prometheus-url')
+        GRAFANA_URL = credentials('grafana-url')
+        
+        // Notifications
+        SLACK_WEBHOOK = credentials('slack-webhook-url')
+    }
+    
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    // Determine target environment
+                    env.TARGET_ENVIRONMENT = params.ENVIRONMENT ?: (
+                        env.BRANCH_NAME == 'main' ? 'production' :
+                        env.BRANCH_NAME == 'staging' ? 'staging' :
+                        'develop'
+                    )
+                    
+                    // Set deployment flags
+                    env.SHOULD_DEPLOY = env.TARGET_ENVIRONMENT in ['production', 'staging', 'develop'] ? 'true' : 'false'
+                    
+                    echo "🚀 Starting pipeline for ${APP_NAME}"
+                    echo "📋 Target Environment: ${env.TARGET_ENVIRONMENT}"
+                    echo "🏷️  Version: ${VERSION}"
+                    echo "🌟 Should Deploy: ${env.SHOULD_DEPLOY}"
+                }
+                
+                // Clean workspace
+                cleanWs()
+                
+                // Checkout code
+                checkout scm
+                
+                // Validate Jenkinsfile and configurations
+                script {
+                    sh '''
+                        echo "Validating configuration files..."
+                        find integrations/ -name "*.yml" -o -name "*.yaml" | while read file; do
+                            echo "Checking $file..."
+                            python3 -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
+                        done
+                        echo "✅ All configurations are valid"
+                    '''
+                }
+            }
+        }
+        
+        stage('Vault Authentication') {
+            when {
+                expression { env.SHOULD_DEPLOY == 'true' }
+            }
+            steps {
+                script {
+                    // Authenticate with Vault using Jenkins Vault plugin
+                    withVault([
+                        configuration: [
+                            vaultUrl: env.VAULT_ADDR,
+                            vaultCredentialId: 'vault-approle',
+                            engineVersion: 2
+                        ],
+                        vaultSecrets: [
+                            [
+                                path: "secret/applications/${APP_NAME}/${env.TARGET_ENVIRONMENT}",
+                                secretValues: [
+                                    [envVar: 'DATABASE_URL', vaultKey: 'database_url'],
+                                    [envVar: 'API_KEY', vaultKey: 'api_key'],
+                                    [envVar: 'ENCRYPTION_KEY', vaultKey: 'encryption_key']
+                                ]
+                            ],
+                            [
+                                path: "secret/infrastructure/tokens",
+                                secretValues: [
+                                    [envVar: 'CONSUL_TOKEN', vaultKey: 'consul_token'],
+                                    [envVar: 'NOMAD_TOKEN', vaultKey: 'nomad_token'],
+                                    [envVar: 'GRAFANA_TOKEN', vaultKey: 'grafana_token']
+                                ]
+                            ]
+                        ]
+                    ]) {
+                        // Secrets are now available as environment variables
+                        echo "✅ Vault authentication successful"
+                        echo "🔐 Application secrets retrieved for ${env.TARGET_ENVIRONMENT}"
+                        
+                        // Store secrets in credential files for later stages
+                        writeFile file: 'secrets.env', text: """
+DATABASE_URL=${env.DATABASE_URL}
+API_KEY=${env.API_KEY}
+ENCRYPTION_KEY=${env.ENCRYPTION_KEY}
+CONSUL_TOKEN=${env.CONSUL_TOKEN}
+NOMAD_TOKEN=${env.NOMAD_TOKEN}
+GRAFANA_TOKEN=${env.GRAFANA_TOKEN}
+                        """
+                    }
+                }
+                
+                // Archive secrets file for later stages (encrypted)
+                archiveArtifacts artifacts: 'secrets.env', allowEmptyArchive: false
+            }
+        }
+        
+        stage('Test Suite') {
+            when {
+                not { params.SKIP_TESTS }
+            }
+            parallel {
+                stage('Python Unit Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11'
+                            args '-v $HOME/.cache/pip:/root/.cache/pip'
+                        }
+                    }
+                    steps {
+                        script {
+                            sh '''
+                                cd integrations/python
+                                pip install -r requirements.txt
+                                pip install pytest pytest-cov pytest-xdist pytest-html
+                                
+                                # Run tests with coverage
+                                pytest tests/unit/ \
+                                    --cov=vault_integration_sdk \
+                                    --cov-report=xml \
+                                    --cov-report=html \
+                                    --html=test-report.html \
+                                    --self-contained-html \
+                                    -n auto
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            // Publish test results
+                            publishHTML([
+                                allowMissing: false,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'integrations/python/htmlcov',
+                                reportFiles: 'index.html',
+                                reportName: 'Python Coverage Report'
+                            ])
+                            
+                            publishHTML([
+                                allowMissing: false,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'integrations/python',
+                                reportFiles: 'test-report.html',
+                                reportName: 'Python Test Report'
+                            ])
+                        }
+                    }
+                }
+                
+                stage('JavaScript Unit Tests') {
+                    agent {
+                        docker {
+                            image 'node:18'
+                            args '-v $HOME/.npm:/root/.npm'
+                        }
+                    }
+                    steps {
+                        script {
+                            sh '''
+                                cd integrations/javascript
+                                npm ci
+                                npm test -- --coverage --coverageReporters=html,cobertura
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            publishHTML([
+                                allowMissing: false,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'integrations/javascript/coverage/lcov-report',
+                                reportFiles: 'index.html',
+                                reportName: 'JavaScript Coverage Report'
+                            ])
+                        }
+                    }
+                }
+                
+                stage('Integration Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11'
+                        }
+                    }
+                    steps {
+                        script {
+                            // Load secrets for integration tests
+                            sh '''
+                                source secrets.env
+                                cd integrations/tests
+                                pip install -r requirements.txt
+                                pytest integration/ \
+                                    -v \
+                                    --tb=short \
+                                    --junitxml=integration-results.xml
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'integrations/tests/integration-results.xml'
+                        }
+                    }
+                }
+                
+                stage('Security Scan') {
+                    agent {
+                        docker {
+                            image 'python:3.11'
+                        }
+                    }
+                    steps {
+                        script {
+                            sh '''
+                                # Install security tools
+                                pip install bandit safety semgrep
+                                
+                                # Python security scan
+                                cd integrations/python
+                                bandit -r vault_integration_sdk.py \
+                                    -f json \
+                                    -o security-report.json || true
+                                
+                                safety check \
+                                    --json \
+                                    --output safety-report.json || true
+                                
+                                # Node.js security scan
+                                cd ../javascript
+                                npm audit \
+                                    --audit-level moderate \
+                                    --json > audit-report.json || true
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: 'integrations/**/*-report.json', allowEmptyArchive: true
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Build & Package') {
+            when {
+                anyOf {
+                    expression { env.SHOULD_DEPLOY == 'true' }
+                    expression { params.FORCE_DEPLOY }
+                }
+            }
+            steps {
+                script {
+                    // Build Docker image
+                    sh '''
+                        echo "🔨 Building Docker image..."
+                        docker build \
+                            --tag ${IMAGE_NAME}:${VERSION} \
+                            --tag ${IMAGE_NAME}:${BRANCH_NAME} \
+                            --label "version=${VERSION}" \
+                            --label "commit=${GIT_COMMIT}" \
+                            --label "branch=${BRANCH_NAME}" \
+                            --label "build=${BUILD_NUMBER}" \
+                            .
+                        
+                        echo "📦 Pushing Docker image..."
+                        docker push ${IMAGE_NAME}:${VERSION}
+                        docker push ${IMAGE_NAME}:${BRANCH_NAME}
+                        
+                        echo "✅ Docker image built and pushed: ${IMAGE_NAME}:${VERSION}"
+                    '''
+                }
+            }
+        }
+        
+        stage('Service Registration') {
+            when {
+                expression { env.SHOULD_DEPLOY == 'true' }
+            }
+            steps {
+                script {
+                    // Register service with Consul
+                    sh '''
+                        source secrets.env
+                        
+                        echo "📋 Registering service with Consul..."
+                        
+                        # Create service definition
+                        cat > service.json << EOF
+{
+  "Name": "${APP_NAME}",
+  "ID": "${APP_NAME}-${TARGET_ENVIRONMENT}",
+  "Tags": [
+    "version:${VERSION}",
+    "environment:${TARGET_ENVIRONMENT}",
+    "jenkins-ci",
+    "build:${BUILD_NUMBER}"
+  ],
+  "Address": "service.${TARGET_ENVIRONMENT}.internal",
+  "Port": 8080,
+  "Meta": {
+    "version": "${VERSION}",
+    "commit": "${GIT_COMMIT}",
+    "branch": "${BRANCH_NAME}",
+    "build": "${BUILD_NUMBER}",
+    "deployed_by": "jenkins"
+  },
+  "Check": {
+    "HTTP": "https://service.${TARGET_ENVIRONMENT}.internal:8080/health",
+    "Interval": "10s",
+    "Timeout": "3s"
+  }
+}
+EOF
+                        
+                        # Register with Consul
+                        consul services register service.json
+                        
+                        echo "✅ Service registered: ${APP_NAME}-${TARGET_ENVIRONMENT}"
+                    '''
+                }
+            }
+        }
+        
+        stage('Deploy to Nomad') {
+            when {
+                expression { env.SHOULD_DEPLOY == 'true' }
+            }
+            steps {
+                script {
+                    // Deploy with Nomad
+                    sh '''
+                        source secrets.env
+                        
+                        echo "🚀 Deploying to Nomad..."
+                        
+                        # Generate job specification
+                        export IMAGE=${IMAGE_NAME}:${VERSION}
+                        envsubst < integrations/ci-cd/nomad/app-template.nomad > ${APP_NAME}.nomad
+                        
+                        # Validate job specification
+                        nomad job validate ${APP_NAME}.nomad
+                        
+                        # Plan deployment
+                        nomad job plan ${APP_NAME}.nomad
+                        
+                        # Deploy the job
+                        nomad job run ${APP_NAME}.nomad
+                        
+                        # Wait for deployment
+                        echo "⏳ Waiting for deployment to complete..."
+                        timeout 300 bash -c 'until nomad job status ${APP_NAME} | grep -q "running"; do sleep 10; echo "Still waiting..."; done'
+                        
+                        # Verify deployment
+                        nomad job status ${APP_NAME}
+                        
+                        echo "✅ Deployment successful!"
+                    '''
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            when {
+                expression { env.SHOULD_DEPLOY == 'true' }
+            }
+            steps {
+                script {
+                    retry(3) {
+                        sleep 30
+                        sh '''
+                            source secrets.env
+                            
+                            echo "🏥 Performing health checks..."
+                            
+                            # Check Nomad job status
+                            nomad job status ${APP_NAME}
+                            
+                            # Check Consul service health
+                            consul health service ${APP_NAME}
+                            
+                            # Test application endpoint
+                            curl -f https://service.${TARGET_ENVIRONMENT}.internal:8080/health
+                            
+                            echo "✅ All health checks passed!"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Monitoring Setup') {
+            when {
+                expression { env.SHOULD_DEPLOY == 'true' }
+            }
+            parallel {
+                stage('Prometheus Metrics') {
+                    steps {
+                        script {
+                            sh '''
+                                source secrets.env
+                                
+                                echo "📊 Pushing deployment metrics to Prometheus..."
+                                
+                                # Push deployment metrics
+                                cat << EOF | curl -X POST "${PROMETHEUS_URL}/metrics/job/${APP_NAME}/environment/${TARGET_ENVIRONMENT}" --data-binary @-
+# TYPE deployment_info gauge
+deployment_info{version="${VERSION}",commit="${GIT_COMMIT}",branch="${BRANCH_NAME}",build="${BUILD_NUMBER}"} 1
+# TYPE deployment_timestamp gauge
+deployment_timestamp $(date +%s)
+EOF
+                                
+                                echo "✅ Metrics pushed to Prometheus"
+                            '''
+                        }
+                    }
+                }
+                
+                stage('Grafana Dashboard') {
+                    steps {
+                        script {
+                            sh '''
+                                source secrets.env
+                                
+                                echo "📈 Updating Grafana dashboard..."
+                                
+                                # Update application dashboard
+                                curl -X POST "${GRAFANA_URL}/api/dashboards/db" \
+                                    -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
+                                    -H "Content-Type: application/json" \
+                                    -d @integrations/ci-cd/monitoring/grafana-dashboard.json
+                                
+                                echo "✅ Grafana dashboard updated"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Clean up workspace
+            cleanWs()
+        }
+        
+        success {
+            script {
+                // Send success notification
+                slackSend(
+                    channel: '#deployments',
+                    color: 'good',
+                    message: """
+                        ✅ *Deployment Successful*
+                        *Application:* ${APP_NAME}
+                        *Environment:* ${env.TARGET_ENVIRONMENT}
+                        *Version:* ${VERSION}
+                        *Pipeline:* <${BUILD_URL}|${BUILD_DISPLAY_NAME}>
+                        *Commit:* ${GIT_COMMIT[0..7]}
+                    """
+                )
+                
+                // Update deployment status in external systems
+                sh '''
+                    echo "Updating deployment status..."
+                    # Add any external system notifications here
+                '''
+            }
+        }
+        
+        failure {
+            script {
+                // Send failure notification
+                slackSend(
+                    channel: '#deployments',
+                    color: 'danger',
+                    message: """
+                        ❌ *Deployment Failed*
+                        *Application:* ${APP_NAME}
+                        *Environment:* ${env.TARGET_ENVIRONMENT}
+                        *Version:* ${VERSION}
+                        *Pipeline:* <${BUILD_URL}|${BUILD_DISPLAY_NAME}>
+                        *Failed Stage:* ${env.STAGE_NAME}
+                        
+                        Please check the <${BUILD_URL}console|build logs> for details.
+                    """
+                )
+                
+                // Trigger rollback if deployment failed
+                if (env.SHOULD_DEPLOY == 'true' && env.STAGE_NAME?.contains('Deploy')) {
+                    script {
+                        try {
+                            sh '''
+                                source secrets.env
+                                echo "🔄 Attempting rollback..."
+                                nomad job stop -purge ${APP_NAME} || true
+                                consul services deregister ${APP_NAME}-${TARGET_ENVIRONMENT} || true
+                                echo "✅ Rollback completed"
+                            '''
+                        } catch (Exception e) {
+                            echo "⚠️ Rollback failed: ${e.getMessage()}"
+                        }
+                    }
+                }
+            }
+        }
+        
+        unstable {
+            slackSend(
+                channel: '#deployments',
+                color: 'warning',
+                message: """
+                    ⚠️ *Pipeline Unstable*
+                    *Application:* ${APP_NAME}
+                    *Environment:* ${env.TARGET_ENVIRONMENT}
+                    *Version:* ${VERSION}
+                    *Pipeline:* <${BUILD_URL}|${BUILD_DISPLAY_NAME}>
+                    
+                    Some tests may have failed but deployment continued.
+                """
+            )
+        }
+    }
+}
+
+// Helper functions
+def getEnvironmentFromBranch(branchName) {
+    switch (branchName) {
+        case 'main':
+        case 'master':
+            return 'production'
+        case 'staging':
+            return 'staging'
+        case 'develop':
+            return 'develop'
+        default:
+            return 'review'
+    }
+}

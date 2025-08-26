@@ -1,0 +1,81 @@
+{
+  "name": "vault-infrastructure-sdk",
+  "version": "1.0.0",
+  "description": "JavaScript/Node.js SDK for integrating with Vault infrastructure services",
+  "main": "vault-integration-sdk.js",
+  "keywords": [
+    "vault",
+    "consul",
+    "nomad",
+    "prometheus",
+    "infrastructure",
+    "devops",
+    "secrets-management",
+    "service-discovery"
+  ],
+  "author": "Vault Integration Team <devops@company.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/company/vault-infrastructure-sdk.git"
+  },
+  "homepage": "https://github.com/company/vault-infrastructure-sdk#readme",
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.5.0",
+    "winston": "^3.10.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.48.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.28.1",
+    "prettier": "^3.0.3",
+    "nodemon": "^3.0.1",
+    "supertest": "^6.3.3"
+  },
+  "scripts": {
+    "start": "node vault-integration-sdk.js",
+    "dev": "nodemon vault-integration-sdk.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": [
+      "**/*.js",
+      "!**/node_modules/**",
+      "!**/coverage/**",
+      "!jest.config.js"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.js",
+      "**/?(*.)+(spec|test).js"
+    ]
+  },
+  "eslintConfig": {
+    "extends": [
+      "airbnb-base"
+    ],
+    "rules": {
+      "no-console": "off",
+      "class-methods-use-this": "off"
+    }
+  },
+  "prettier": {
+    "singleQuote": true,
+    "trailingComma": "es5",
+    "tabWidth": 4,
+    "semi": true
+  }
+}
