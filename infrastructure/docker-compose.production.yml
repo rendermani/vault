@@ -1,0 +1,470 @@
+version: '3.8'
+
+# Production Docker Compose - Cloudya Infrastructure
+# SSL-ready configuration with enhanced security and monitoring
+# Use: docker-compose -f docker-compose.production.yml up -d
+
+networks:
+  cloudya:
+    name: cloudya
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+    driver_opts:
+      com.docker.network.bridge.name: "cloudya-br0"
+
+volumes:
+  consul_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/consul
+  vault_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/vault
+  vault_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/logs/vault
+  vault_config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/config/vault
+  nomad_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/nomad
+  traefik_certs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/certs/traefik
+  traefik_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/logs/traefik
+  prometheus_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/prometheus
+  grafana_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/grafana
+  minio_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/minio
+
+services:
+  # Traefik - SSL Termination and Reverse Proxy
+  traefik:
+    image: traefik:v3.2.3
+    container_name: traefik-production
+    hostname: traefik
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.5
+    ports:
+      - "80:80"    # HTTP (redirects to HTTPS)
+      - "443:443"  # HTTPS
+      - "8080:8080"  # Dashboard (secured with auth)
+      - "8081:8081"  # Health check
+      - "8082:8082"  # Metrics
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_certs:/etc/traefik/certs
+      - traefik_logs:/var/log/traefik
+      - ./traefik/config:/etc/traefik:ro
+    environment:
+      - TRAEFIK_LOG_LEVEL=INFO
+      - TRAEFIK_API_DASHBOARD=true
+      - TRAEFIK_API_INSECURE=false
+      - TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:80
+      - TRAEFIK_ENTRYPOINTS_WEBSECURE_ADDRESS=:443
+      - TRAEFIK_PROVIDERS_DOCKER=true
+      - TRAEFIK_PROVIDERS_DOCKER_NETWORK=cloudya
+      - TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT=false
+      - TRAEFIK_PROVIDERS_FILE_DIRECTORY=/etc/traefik/dynamic
+      - TRAEFIK_PROVIDERS_FILE_WATCH=true
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL=${ACME_EMAIL:-admin@cloudya.net}
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_STORAGE=/etc/traefik/certs/acme.json
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_CASERVER=https://acme-v02.api.letsencrypt.org/directory
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_DNSCHALLENGE_PROVIDER=${DNS_PROVIDER:-cloudflare}
+      - CF_API_EMAIL=${CLOUDFLARE_EMAIL}
+      - CF_API_KEY=${CLOUDFLARE_API_KEY}
+      - CF_DNS_API_TOKEN=${CLOUDFLARE_DNS_TOKEN}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.constraint-label-stack=cloudya"
+      # Dashboard router
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.cloudya.net`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.middlewares=auth-dashboard@file,security-headers@file,rate-limit-admin@file"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # HashiCorp Consul - Service Discovery
+  consul:
+    image: hashicorp/consul:1.19.2
+    container_name: consul-production
+    hostname: consul
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "8500:8500"  # HTTP API
+      - "8300:8300"  # Server RPC
+      - "8301:8301"  # Serf LAN
+      - "8302:8302"  # Serf WAN
+      - "8600:8600/udp"  # DNS
+    volumes:
+      - consul_data:/consul/data
+      - ./consul/config:/consul/config:ro
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+      - CONSUL_CLIENT_INTERFACE=eth0
+      - CONSUL_DATACENTER=cloudya-dc1
+      - CONSUL_ENCRYPT=${CONSUL_ENCRYPT_KEY}
+      - CONSUL_LOG_LEVEL=INFO
+    command: >
+      consul agent 
+      -server 
+      -bootstrap-expect=1 
+      -ui-config-enabled 
+      -data-dir=/consul/data 
+      -config-dir=/consul/config 
+      -client=0.0.0.0 
+      -bind=172.20.0.10
+      -datacenter=cloudya-dc1
+      -node=consul-production
+      -disable-host-node-id
+    labels:
+      - "traefik.enable=true"
+      - "traefik.constraint-label-stack=cloudya"
+      - "traefik.http.routers.consul.rule=Host(`consul.cloudya.net`)"
+      - "traefik.http.routers.consul.entrypoints=websecure"
+      - "traefik.http.routers.consul.tls.certresolver=letsencrypt"
+      - "traefik.http.services.consul.loadbalancer.server.port=8500"
+    healthcheck:
+      test: ["CMD-SHELL", "consul members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # HashiCorp Vault - Production Mode
+  vault:
+    image: hashicorp/vault:1.17.6
+    container_name: vault-production
+    hostname: vault
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.20
+    ports:
+      - "8200:8200"  # API/UI
+    volumes:
+      - vault_data:/vault/data
+      - vault_logs:/vault/logs
+      - vault_config:/vault/config
+      - ./vault/policies:/vault/policies:ro
+      - ./vault/config:/vault/config:ro
+    environment:
+      - VAULT_ADDR=http://127.0.0.1:8200
+      - VAULT_API_ADDR=http://vault:8200
+      - VAULT_CLUSTER_ADDR=http://vault:8201
+      - VAULT_LOG_LEVEL=INFO
+      - VAULT_UI=true
+      - VAULT_SEAL_TYPE=${VAULT_SEAL_TYPE:-shamir}
+    cap_add:
+      - IPC_LOCK
+    command: vault server -config=/vault/config/vault.hcl
+    labels:
+      - "traefik.enable=true"
+      - "traefik.constraint-label-stack=cloudya"
+      - "traefik.http.routers.vault.rule=Host(`vault.cloudya.net`)"
+      - "traefik.http.routers.vault.entrypoints=websecure"
+      - "traefik.http.routers.vault.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vault.loadbalancer.server.port=8200"
+      - "traefik.http.routers.vault.middlewares=security-headers@file,api-security@file,rate-limit-api@file"
+    healthcheck:
+      test: ["CMD-SHELL", "vault status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  # HashiCorp Nomad - Workload Orchestration
+  nomad:
+    image: hashicorp/nomad:1.8.4
+    container_name: nomad-production
+    hostname: nomad
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.30
+    ports:
+      - "4646:4646"  # HTTP API
+      - "4647:4647"  # RPC
+      - "4648:4648"  # Serf
+    volumes:
+      - nomad_data:/nomad/data
+      - ./nomad/config:/nomad/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /tmp:/tmp
+    environment:
+      - NOMAD_LOG_LEVEL=INFO
+      - NOMAD_DATACENTER=cloudya-dc1
+    command: nomad agent -config=/nomad/config
+    labels:
+      - "traefik.enable=true"
+      - "traefik.constraint-label-stack=cloudya"
+      - "traefik.http.routers.nomad.rule=Host(`nomad.cloudya.net`)"
+      - "traefik.http.routers.nomad.entrypoints=websecure"
+      - "traefik.http.routers.nomad.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nomad.loadbalancer.server.port=4646"
+      - "traefik.http.routers.nomad.middlewares=auth-basic@file,security-headers@file,rate-limit-admin@file"
+    healthcheck:
+      test: ["CMD-SHELL", "nomad node status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    depends_on:
+      consul:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus-production
+    hostname: prometheus
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.50
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./monitoring/prometheus:/etc/prometheus:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--web.external-url=https://metrics.cloudya.net'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.constraint-label-stack=cloudya"
+      - "traefik.http.routers.prometheus.rule=Host(`metrics.cloudya.net`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+      - "traefik.http.routers.prometheus.middlewares=auth-basic@file,security-headers@file,rate-limit@file"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana - Monitoring Dashboard
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: grafana-production
+    hostname: grafana
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.60
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel
+      - GF_SERVER_ROOT_URL=https://grafana.cloudya.net
+      - GF_SERVER_SERVE_FROM_SUB_PATH=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      - GF_USERS_AUTO_ASSIGN_ORG=true
+      - GF_USERS_AUTO_ASSIGN_ORG_ROLE=Viewer
+      - GF_LOG_MODE=console,file
+      - GF_LOG_LEVEL=info
+    labels:
+      - "traefik.enable=true"
+      - "traefik.constraint-label-stack=cloudya"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.cloudya.net`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+      - "traefik.http.routers.grafana.middlewares=security-headers@file,compression@file,rate-limit@file"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - prometheus
+
+  # MinIO - Object Storage (S3 Compatible)
+  minio:
+    image: minio/minio:RELEASE.2024-08-29T01-40-52Z
+    container_name: minio-production
+    hostname: minio
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.70
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_BROWSER_REDIRECT_URL=https://storage-console.cloudya.net
+      - MINIO_SERVER_URL=https://storage.cloudya.net
+      - MINIO_PROMETHEUS_AUTH_TYPE=public
+    command: server /data --console-address ":9001"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.constraint-label-stack=cloudya"
+      # API
+      - "traefik.http.routers.minio-api.rule=Host(`storage.cloudya.net`)"
+      - "traefik.http.routers.minio-api.entrypoints=websecure"
+      - "traefik.http.routers.minio-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-api.service=minio-api"
+      - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
+      - "traefik.http.routers.minio-api.middlewares=security-headers@file,cors@file,rate-limit-api@file"
+      # Console
+      - "traefik.http.routers.minio-console.rule=Host(`storage-console.cloudya.net`)"
+      - "traefik.http.routers.minio-console.entrypoints=websecure"
+      - "traefik.http.routers.minio-console.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-console.service=minio-console"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+      - "traefik.http.routers.minio-console.middlewares=security-headers@file,rate-limit@file"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # PostgreSQL - Production Database
+  postgres:
+    image: postgres:16.4-alpine
+    container_name: postgres-production
+    hostname: postgres
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.80
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-cloudya}
+      - POSTGRES_USER=${POSTGRES_USER:-cloudya}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cloudya} -d ${POSTGRES_DB:-cloudya}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis - Production Cache and Session Store
+  redis:
+    image: redis:7.4.0-alpine
+    container_name: redis-production
+    hostname: redis
+    restart: unless-stopped
+    networks:
+      cloudya:
+        ipv4_address: 172.20.0.90
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/postgres
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cloudya/data/redis
+
+# Production deployment notes:
+# 1. Ensure all environment variables are set (use .env file)
+# 2. Create directories: mkdir -p /opt/cloudya/{data,logs,certs,config}/{traefik,vault,consul,nomad,prometheus,grafana,minio,postgres,redis}
+# 3. Set proper file permissions: chown -R 1000:1000 /opt/cloudya
+# 4. Configure DNS records to point to this server
+# 5. Ensure firewall allows ports 80, 443, 22
+# 6. Set up log rotation for /opt/cloudya/logs
+# 7. Configure backup for /opt/cloudya/data
+# 8. Test certificate generation before production deployment

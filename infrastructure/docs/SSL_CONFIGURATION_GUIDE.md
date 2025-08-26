@@ -1,15 +1,18 @@
-# SSL Certificate Configuration Guide
+# Enhanced SSL/TLS Configuration Guide for Cloudya Infrastructure
 
-This document outlines the comprehensive SSL certificate setup for Cloudya infrastructure using Let's Encrypt and Traefik.
+This document provides comprehensive documentation for the SSL/TLS configuration in the Cloudya infrastructure. Our setup uses Traefik as a reverse proxy with automatic Let's Encrypt certificate management, providing enterprise-grade security for all services.
 
 ## Overview
 
-The SSL certificate configuration provides:
+The enhanced SSL certificate configuration provides:
 - **Automatic SSL certificates** from Let's Encrypt for all `cloudya.net` domains
-- **HTTP to HTTPS redirect** for all services
-- **Certificate monitoring and renewal** automation
-- **A+ SSL Labs rating** configuration
-- **Persistent certificate storage** across deployments
+- **Wildcard certificate support** with DNS challenge capabilities  
+- **HTTP to HTTPS redirect** with HSTS security headers
+- **Certificate monitoring and renewal** automation with alerting
+- **A+ SSL Labs rating** configuration with modern TLS settings
+- **Persistent certificate storage** with backup and recovery
+- **Production and staging** certificate environments
+- **Comprehensive testing** and validation tools
 
 ## Configured Domains
 

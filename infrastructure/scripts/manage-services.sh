@@ -264,7 +264,14 @@ start_services() {
     
     # Start and enable Consul
     if [[ "$start_consul" == "true" ]]; then
+        log_info "Starting Consul service..."
         systemctl enable consul
+        
+        # Ensure consul user can access required directories
+        mkdir -p /var/log/consul
+        chown -R consul:consul /var/log/consul
+        chown -R consul:consul /opt/consul
+        
         if systemctl is-active --quiet consul; then
             log_info "Consul is already running, restarting..."
             systemctl restart consul
@@ -272,27 +279,47 @@ start_services() {
             systemctl start consul
         fi
         
-        # Wait for Consul to be ready
+        # Wait for Consul to be ready with extended timeout
         log_info "Waiting for Consul to be ready..."
-        timeout=60
-        while [[ $timeout -gt 0 ]]; do
-            if curl -s http://localhost:8500/v1/status/leader >/dev/null 2>&1; then
-                log_success "Consul is ready"
-                break
+        local consul_ready=false
+        for attempt in {1..30}; do
+            if systemctl is-active --quiet consul; then
+                log_debug "Consul systemd service is active (attempt $attempt)"
+                # Check if API is responding
+                if curl -s --connect-timeout 2 http://localhost:8500/v1/status/leader >/dev/null 2>&1; then
+                    log_success "Consul is ready and responding"
+                    consul_ready=true
+                    break
+                else
+                    log_debug "Consul service active but API not responding yet (attempt $attempt)"
+                fi
+            else
+                log_debug "Consul systemd service not active yet (attempt $attempt)"
             fi
-            sleep 2
-            timeout=$((timeout-2))
+            sleep 3
         done
         
-        if [[ $timeout -le 0 ]]; then
+        if [[ "$consul_ready" != "true" ]]; then
             log_error "Consul did not become ready within timeout"
+            log_error "Consul service status:"
+            systemctl status consul --no-pager || true
+            log_error "Consul logs:"
+            journalctl -u consul --no-pager --lines=20 || true
             exit 1
         fi
     fi
     
     # Start and enable Nomad
     if [[ "$start_nomad" == "true" ]]; then
+        log_info "Starting Nomad service..."
         systemctl enable nomad
+        
+        # Ensure nomad user has Docker access and directory permissions
+        mkdir -p /var/log/nomad
+        chown -R nomad:nomad /var/log/nomad
+        chown -R nomad:nomad /opt/nomad
+        usermod -aG docker nomad 2>/dev/null || log_warning "Could not add nomad user to docker group"
+        
         if systemctl is-active --quiet nomad; then
             log_info "Nomad is already running, restarting..."
             systemctl restart nomad
@@ -300,20 +327,34 @@ start_services() {
             systemctl start nomad
         fi
         
-        # Wait for Nomad to be ready
+        # Wait for Nomad to be ready with extended timeout
         log_info "Waiting for Nomad to be ready..."
-        timeout=60
-        while [[ $timeout -gt 0 ]]; do
-            if curl -s http://localhost:4646/v1/status/leader >/dev/null 2>&1; then
-                log_success "Nomad is ready"
-                break
+        local nomad_ready=false
+        for attempt in {1..45}; do
+            if systemctl is-active --quiet nomad; then
+                log_debug "Nomad systemd service is active (attempt $attempt)"
+                # Check if API is responding
+                if curl -s --connect-timeout 2 http://localhost:4646/v1/status/leader >/dev/null 2>&1; then
+                    log_success "Nomad is ready and responding"
+                    nomad_ready=true
+                    break
+                else
+                    log_debug "Nomad service active but API not responding yet (attempt $attempt)"
+                fi
+            else
+                log_debug "Nomad systemd service not active yet (attempt $attempt)"
             fi
-            sleep 2
-            timeout=$((timeout-2))
+            sleep 4
         done
         
-        if [[ $timeout -le 0 ]]; then
+        if [[ "$nomad_ready" != "true" ]]; then
             log_error "Nomad did not become ready within timeout"
+            log_error "Nomad service status:"
+            systemctl status nomad --no-pager || true
+            log_error "Nomad logs:"
+            journalctl -u nomad --no-pager --lines=20 || true
+            log_error "Network status:"
+            netstat -tlnp | grep -E ":(4646|4647|4648)" || echo "No Nomad ports listening"
             exit 1
         fi
     fi

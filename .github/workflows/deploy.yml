@@ -275,11 +275,17 @@ jobs:
             set -euo pipefail
             echo "Updating system packages..."
             apt-get update
-            apt-get install -y curl wget unzip jq docker.io docker-compose
+            apt-get install -y curl wget unzip jq docker.io docker-compose netstat-nat lsof
             
             # Start Docker
             systemctl enable docker
             systemctl start docker
+            
+            # Ensure Docker is working
+            if ! docker info >/dev/null 2>&1; then
+              echo "ERROR: Docker is not properly configured"
+              exit 1
+            fi
             
             # Create infrastructure directory
             mkdir -p /opt/infrastructure
@@ -288,37 +294,54 @@ jobs:
             cd /tmp
             
             # Install Nomad
-            if [[ ! -f /usr/local/bin/nomad ]]; then
+            if [[ ! -f /usr/local/bin/nomad ]] || [[ "$(nomad version | head -1 | grep -o 'v[0-9.]*')" != "v${{ env.NOMAD_VERSION }}" ]]; then
               echo "Installing Nomad ${{ env.NOMAD_VERSION }}..."
               curl -fsSL https://releases.hashicorp.com/nomad/${{ env.NOMAD_VERSION }}/nomad_${{ env.NOMAD_VERSION }}_linux_amd64.zip -o nomad.zip
               unzip nomad.zip
               mv nomad /usr/local/bin/
               chmod +x /usr/local/bin/nomad
+              rm nomad.zip
             fi
             
             # Install Vault
-            if [[ ! -f /usr/local/bin/vault ]]; then
+            if [[ ! -f /usr/local/bin/vault ]] || [[ "$(vault version | head -1 | grep -o 'v[0-9.]*')" != "v${{ env.VAULT_VERSION }}" ]]; then
               echo "Installing Vault ${{ env.VAULT_VERSION }}..."
               curl -fsSL https://releases.hashicorp.com/vault/${{ env.VAULT_VERSION }}/vault_${{ env.VAULT_VERSION }}_linux_amd64.zip -o vault.zip
               unzip vault.zip
               mv vault /usr/local/bin/
               chmod +x /usr/local/bin/vault
+              rm vault.zip
             fi
             
             # Install Consul
-            if [[ ! -f /usr/local/bin/consul ]]; then
+            if [[ ! -f /usr/local/bin/consul ]] || [[ "$(consul version | head -1 | grep -o 'v[0-9.]*')" != "v${{ env.CONSUL_VERSION }}" ]]; then
               echo "Installing Consul ${{ env.CONSUL_VERSION }}..."
               curl -fsSL https://releases.hashicorp.com/consul/${{ env.CONSUL_VERSION }}/consul_${{ env.CONSUL_VERSION }}_linux_amd64.zip -o consul.zip
               unzip consul.zip
               mv consul /usr/local/bin/
               chmod +x /usr/local/bin/consul
+              rm consul.zip
             fi
             
             # Verify installations
+            echo "Verifying tool installations..."
             nomad version
             vault version
             consul version
             docker --version
+            
+            # Stop any running services to prevent conflicts
+            echo "Stopping any existing services..."
+            systemctl stop nomad 2>/dev/null || echo "Nomad was not running"
+            systemctl stop consul 2>/dev/null || echo "Consul was not running"
+            
+            # Clear any conflicting processes on required ports
+            for port in 8500 4646 4647 4648; do
+              if lsof -i ":$port" >/dev/null 2>&1; then
+                echo "Killing processes on port $port..."
+                lsof -ti ":$port" | xargs kill -9 2>/dev/null || true
+              fi
+            done
             
             echo "Remote server preparation completed successfully"
           EOF
@@ -572,6 +595,20 @@ jobs:
           echo "Transferring deployment configuration to remote server..."
           scp deployment.env ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/opt/infrastructure/
 
+      - name: Pre-deployment validation
+        run: |
+          echo "Running pre-deployment validation on remote server..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'VALIDATION_SCRIPT'
+            set -euo pipefail
+            cd /opt/infrastructure
+            
+            echo "Running service startup validator..."
+            chmod +x scripts/service-startup-validator.sh
+            ./scripts/service-startup-validator.sh --test-only --verbose
+            
+            echo "Pre-deployment validation completed successfully"
+          VALIDATION_SCRIPT
+
       - name: Execute remote deployment
         env:
           ENVIRONMENT: ${{ needs.prepare-deployment.outputs.environment }}
@@ -636,54 +673,36 @@ jobs:
             set -euo pipefail
             cd /opt/infrastructure
             
-            echo "Checking service status on remote server..."
-            
-            # Check if services are running based on what was deployed
+            # Source deployment configuration
             source deployment.env
             
             if [[ "$DRY_RUN" != "true" ]]; then
-              # Use the service management script for comprehensive validation
-              echo "Running comprehensive health check..."
-              ./scripts/manage-services.sh health
+              echo "Running comprehensive deployment health check..."
+              chmod +x scripts/deployment-health-check.sh
               
-              # Show service status
+              # Set environment for health check
+              export ENVIRONMENT="$ENVIRONMENT"
+              
+              # Run comprehensive health check based on deployed components
+              if [[ "$DEPLOY_NOMAD" == "true" && "$DEPLOY_VAULT" == "false" && "$DEPLOY_TRAEFIK" == "false" ]]; then
+                ./scripts/deployment-health-check.sh --nomad-only --verbose
+              elif [[ "$DEPLOY_NOMAD" == "false" && "$DEPLOY_VAULT" == "true" && "$DEPLOY_TRAEFIK" == "false" ]]; then
+                ./scripts/deployment-health-check.sh --skip-traefik --verbose
+              elif [[ "$COMPONENTS" == "all" ]]; then
+                ./scripts/deployment-health-check.sh --verbose
+              else
+                # Custom component selection
+                health_check_args="--verbose"
+                [[ "$DEPLOY_VAULT" == "false" ]] && health_check_args="$health_check_args --skip-vault"
+                [[ "$DEPLOY_TRAEFIK" == "false" ]] && health_check_args="$health_check_args --skip-traefik"
+                ./scripts/deployment-health-check.sh $health_check_args
+              fi
+              
+              # Additional service status check
               echo ""
-              echo "=== Service Status ==="
+              echo "=== Detailed Service Status ==="
               ./scripts/manage-services.sh status
               
-              # Additional specific checks
-              if [[ "$DEPLOY_NOMAD" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
-                echo ""
-                echo "=== Nomad Cluster Status ==="
-                if systemctl is-active --quiet nomad; then
-                  echo "✓ Nomad systemd service is active"
-                  nomad node status 2>/dev/null || echo "⚠ Nomad node status check failed"
-                  nomad server members 2>/dev/null || echo "⚠ Nomad server members check failed"
-                else
-                  echo "⚠ Nomad systemd service is not active"
-                fi
-              fi
-              
-              if [[ "$DEPLOY_VAULT" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
-                echo ""
-                echo "=== Vault Status ==="
-                if curl -s http://localhost:8200/v1/sys/health > /dev/null 2>&1; then
-                  echo "✓ Vault is responding"
-                  vault status 2>/dev/null || echo "⚠ Vault status check failed (may need auth)"
-                else
-                  echo "⚠ Vault health check failed"
-                fi
-              fi
-              
-              if [[ "$DEPLOY_TRAEFIK" == "true" ]] || [[ "$COMPONENTS" == "all" ]]; then
-                echo ""
-                echo "=== Traefik Status ==="
-                if curl -s http://localhost:8080/ping > /dev/null 2>&1; then
-                  echo "✓ Traefik is responding"
-                else
-                  echo "⚠ Traefik ping failed"
-                fi
-              fi
             else
               echo "Dry run completed - no services to validate"
             fi

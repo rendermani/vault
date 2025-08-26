@@ -1,12 +1,14 @@
 #!/bin/bash
 
-# SSL Certificate Setup Script for Cloudya Infrastructure
-# This script ensures proper SSL certificate configuration for all domains
+# Enhanced SSL Certificate Setup Script for Cloudya Infrastructure
+# This script sets up comprehensive SSL certificates using Let's Encrypt via Traefik
+# Supports both HTTP and DNS challenges, staging/production modes, and monitoring
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+INFRASTRUCTURE_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$INFRASTRUCTURE_DIR")"
 
 # Color codes for output
 RED='\033[0;31m'

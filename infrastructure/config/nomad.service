@@ -1,7 +1,7 @@
 [Unit]
 Description=Nomad
 Documentation=https://nomadproject.io/docs/
-Requires=network-online.target
+Requires=network-online.target consul.service
 After=network-online.target consul.service
 Wants=consul.service
 ConditionFileNotEmpty=/opt/nomad/config/nomad.hcl
@@ -14,20 +14,28 @@ ExecStart=/usr/local/bin/nomad agent -config=/opt/nomad/config/nomad.hcl
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
 Restart=on-failure
+RestartSec=10
 LimitNOFILE=65536
 LimitNPROC=32768
 LimitCORE=infinity
 
-# Security
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/opt/nomad
-ReadOnlyPaths=/usr/local/bin/nomad
+# Security (relaxed for Docker and volume access)
+NoNewPrivileges=false
+PrivateTmp=false
+ProtectHome=false
+ProtectSystem=false
+ReadWritePaths=/opt/nomad /var/log/nomad /var/run/docker.sock /tmp
 
 # Environment variables
-Environment=NOMAD_ADDR=http://localhost:4646
+Environment=NOMAD_ADDR=http://0.0.0.0:4646
+Environment=CONSUL_HTTP_ADDR=http://localhost:8500
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Ensure log directory and Docker access
+ExecStartPre=/bin/mkdir -p /var/log/nomad
+ExecStartPre=/bin/chown nomad:nomad /var/log/nomad
+ExecStartPre=/bin/usermod -aG docker nomad
+ExecStartPre=/bin/sleep 10
 
 [Install]
 WantedBy=multi-user.target

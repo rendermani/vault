@@ -13,20 +13,29 @@ ExecStart=/usr/local/bin/consul agent -config-dir=/opt/consul/config/
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
 Restart=on-failure
+RestartSec=5
 LimitNOFILE=65536
 LimitNPROC=32768
 LimitCORE=infinity
 
-# Security
+# Security (relaxed for proper startup)
 NoNewPrivileges=true
-PrivateTmp=true
-ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/opt/consul
-ReadOnlyPaths=/usr/local/bin/consul
+PrivateTmp=false
+ProtectHome=false
+ProtectSystem=false
+ReadWritePaths=/opt/consul /var/log/consul /tmp
 
 # Environment
 Environment=CONSUL_ALLOW_PRIVILEGED_PORTS=1
+Environment=CONSUL_HTTP_ADDR=0.0.0.0:8500
+Environment=CONSUL_RPC_ADDR=0.0.0.0:8400
+Environment=CONSUL_SERF_LAN_ADDR=0.0.0.0:8301
+Environment=CONSUL_SERF_WAN_ADDR=0.0.0.0:8302
+Environment=CONSUL_DNS_ADDR=0.0.0.0:8600
+
+# Ensure log directory exists
+ExecStartPre=/bin/mkdir -p /var/log/consul
+ExecStartPre=/bin/chown consul:consul /var/log/consul
 
 [Install]
 WantedBy=multi-user.target
