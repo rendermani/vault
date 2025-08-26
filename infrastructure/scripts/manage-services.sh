@@ -191,13 +191,18 @@ install_configurations() {
     # Generate and install Consul configuration
     mkdir -p /opt/consul/config
     log_info "Generating Consul configuration..."
-    generate_consul_config "develop" "dc1" "/opt/consul/data" "/opt/consul/config" "/var/log/consul" "server" "$(openssl rand -base64 24)" > /opt/consul/config/consul.hcl
+    # Generate proper Consul encryption key (16 bytes base64 encoded)
+    local consul_encrypt_key
+    consul_encrypt_key=$(openssl rand -base64 16 | tr -d '\n')
+    
+    generate_consul_config "develop" "dc1" "/opt/consul/data" "/opt/consul/config" "/var/log/consul" "server" "$consul_encrypt_key" > /opt/consul/config/consul.hcl
     chown "$CONSUL_USER:$CONSUL_USER" /opt/consul/config/consul.hcl
     chmod 640 /opt/consul/config/consul.hcl
     log_success "Consul configuration generated and installed"
     
     # Generate and install Nomad configuration with bootstrap phase awareness
     mkdir -p /opt/nomad/config
+    mkdir -p /etc/nomad
     log_info "Generating Nomad configuration..."
     
     # Respect bootstrap phase environment variables
@@ -215,13 +220,22 @@ install_configurations() {
     fi
     
     # Generate Nomad config with proper bootstrap phase handling
+    # Generate proper Nomad encryption key (16 bytes base64 encoded)
+    local nomad_encrypt_key
+    nomad_encrypt_key=$(openssl rand -base64 16 | tr -d '\n')
+    
     generate_nomad_config "develop" "dc1" "global" "/opt/nomad/data" "/opt/nomad/plugins" "/var/log/nomad" \
-        "both" "$(openssl rand -base64 24)" "0.0.0.0" "" "1" "true" "127.0.0.1:8500" \
+        "both" "$nomad_encrypt_key" "0.0.0.0" "" "1" "true" "127.0.0.1:8500" \
         "$vault_enabled" "http://localhost:8200" "$nomad_vault_bootstrap_phase" > /opt/nomad/config/nomad.hcl
     
+    # Also create the expected /etc/nomad/nomad.hcl file
+    cp /opt/nomad/config/nomad.hcl /etc/nomad/nomad.hcl
+    
     chown "$NOMAD_USER:$NOMAD_USER" /opt/nomad/config/nomad.hcl
+    chown "$NOMAD_USER:$NOMAD_USER" /etc/nomad/nomad.hcl
     chmod 640 /opt/nomad/config/nomad.hcl
-    log_success "Nomad configuration generated and installed"
+    chmod 640 /etc/nomad/nomad.hcl
+    log_success "Nomad configuration generated and installed to both locations"
     
     if [[ "$bootstrap_phase" == "true" ]]; then
         log_warning "Bootstrap phase active: Vault integration disabled in Nomad configuration"
@@ -265,6 +279,21 @@ start_services() {
     # Start and enable Consul
     if [[ "$start_consul" == "true" ]]; then
         log_info "Starting Consul service..."
+        
+        # Validate Consul configuration before starting
+        if [[ ! -f "/opt/consul/config/consul.hcl" ]]; then
+            log_error "Consul configuration file not found: /opt/consul/config/consul.hcl"
+            log_error "Configuration must be generated before starting Consul"
+            exit 1
+        fi
+        
+        # Validate configuration syntax
+        if ! consul validate /opt/consul/config/consul.hcl; then
+            log_error "Consul configuration validation failed"
+            log_error "Please check the configuration file"
+            exit 1
+        fi
+        
         systemctl enable consul
         
         # Ensure consul user can access required directories
@@ -312,6 +341,21 @@ start_services() {
     # Start and enable Nomad
     if [[ "$start_nomad" == "true" ]]; then
         log_info "Starting Nomad service..."
+        
+        # Validate Nomad configuration before starting
+        if [[ ! -f "/opt/nomad/config/nomad.hcl" ]]; then
+            log_error "Nomad configuration file not found: /opt/nomad/config/nomad.hcl"
+            log_error "Configuration must be generated before starting Nomad"
+            exit 1
+        fi
+        
+        # Validate configuration syntax
+        if ! nomad config validate /opt/nomad/config/nomad.hcl; then
+            log_error "Nomad configuration validation failed"
+            log_error "Please check the configuration file"
+            exit 1
+        fi
+        
         systemctl enable nomad
         
         # Ensure nomad user has Docker access and directory permissions
@@ -340,9 +384,22 @@ start_services() {
                     break
                 else
                     log_debug "Nomad service active but API not responding yet (attempt $attempt)"
+                    # Check if the port is bound
+                    if netstat -tlnp 2>/dev/null | grep -q ":4646.*LISTEN"; then
+                        log_debug "Nomad port 4646 is listening, waiting for API readiness"
+                    else
+                        log_debug "Nomad port 4646 not yet listening"
+                    fi
                 fi
             else
                 log_debug "Nomad systemd service not active yet (attempt $attempt)"
+                # Check for service failures
+                if systemctl is-failed --quiet nomad; then
+                    log_error "Nomad service has failed"
+                    systemctl status nomad --no-pager || true
+                    journalctl -u nomad --no-pager --lines=20 || true
+                    exit 1
+                fi
             fi
             sleep 4
         done
@@ -355,6 +412,8 @@ start_services() {
             journalctl -u nomad --no-pager --lines=20 || true
             log_error "Network status:"
             netstat -tlnp | grep -E ":(4646|4647|4648)" || echo "No Nomad ports listening"
+            log_error "Configuration validation:"
+            nomad config validate /opt/nomad/config/nomad.hcl || true
             exit 1
         fi
     fi
