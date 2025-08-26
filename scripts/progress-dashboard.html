@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudya Vault Deployment Progress</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .status-bar {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .overall-progress {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .progress-circle {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, #4CAF50 0%, #4CAF50 var(--progress, 0%), rgba(255,255,255,0.2) var(--progress, 0%));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .progress-info {
+            flex: 1;
+        }
+        
+        .progress-info h2 {
+            margin-bottom: 10px;
+        }
+        
+        .agent-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: rgba(255,255,255,0.15);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .phases {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .phase-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .phase-card.completed {
+            background: rgba(76,175,80,0.2);
+        }
+        
+        .phase-card.in-progress {
+            background: rgba(255,193,7,0.2);
+        }
+        
+        .phase-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .phase-progress {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        
+        .phase-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s ease;
+        }
+        
+        .task-list {
+            list-style: none;
+        }
+        
+        .task-item {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .task-status {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .task-status.completed { background: #4CAF50; }
+        .task-status.in-progress { background: #FF9800; }
+        .task-status.pending { background: rgba(255,255,255,0.3); }
+        
+        .services {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .service-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+        
+        .service-status {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        .service-status.online { background: #4CAF50; }
+        .service-status.starting { background: #FF9800; }
+        .service-status.offline { background: #f44336; }
+        
+        .activities {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .activity-item {
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            gap: 15px;
+        }
+        
+        .activity-time {
+            color: rgba(255,255,255,0.7);
+            font-family: monospace;
+            min-width: 80px;
+        }
+        
+        .refresh-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(76,175,80,0.9);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            display: none;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .loading {
+            animation: pulse 1s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Cloudya Vault Deployment</h1>
+            <p>Real-time Enterprise Infrastructure Deployment Progress</p>
+        </div>
+        
+        <div class="status-bar">
+            <div class="overall-progress">
+                <div class="progress-circle" id="progressCircle" style="--progress: 10%;">
+                    <span id="progressPercent">10%</span>
+                </div>
+                <div class="progress-info">
+                    <h2 id="currentPhase">Research & Planning</h2>
+                    <p id="statusMessage">Active - Full Enterprise Team Deployment</p>
+                    <div class="agent-stats">
+                        <div class="stat-card">
+                            <h3 id="totalAgents">35</h3>
+                            <p>Total Agents</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="activeAgents">30</h3>
+                            <p>Active</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="completedAgents">0</h3>
+                            <p>Completed</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="phases" id="phases">
+            <!-- Phases will be populated by JavaScript -->
+        </div>
+        
+        <div class="services" id="services">
+            <!-- Services will be populated by JavaScript -->
+        </div>
+        
+        <div class="activities">
+            <h2>Recent Activities</h2>
+            <div id="activityList">
+                <!-- Activities will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+    
+    <div class="refresh-indicator" id="refreshIndicator">
+        ⟳ Updated
+    </div>
+    
+    <script>
+        let progressData = {};
+        
+        async function loadProgress() {
+            try {
+                const response = await fetch('progress.json?t=' + Date.now());
+                progressData = await response.json();
+                updateDashboard();
+                showRefreshIndicator();
+            } catch (error) {
+                console.error('Error loading progress:', error);
+            }
+        }
+        
+        function updateDashboard() {
+            // Update overall progress
+            const progress = progressData.overall_progress || 0;
+            document.getElementById('progressCircle').style.setProperty('--progress', progress + '%');
+            document.getElementById('progressPercent').textContent = progress + '%';
+            document.getElementById('currentPhase').textContent = progressData.current_phase || 'Unknown';
+            document.getElementById('statusMessage').textContent = progressData.status || 'Status Unknown';
+            
+            // Update agent stats
+            if (progressData.agents) {
+                document.getElementById('totalAgents').textContent = progressData.agents.total || 0;
+                document.getElementById('activeAgents').textContent = progressData.agents.active || 0;
+                document.getElementById('completedAgents').textContent = progressData.agents.completed || 0;
+            }
+            
+            // Update phases
+            updatePhases();
+            
+            // Update services
+            updateServices();
+            
+            // Update activities
+            updateActivities();
+        }
+        
+        function updatePhases() {
+            const phasesContainer = document.getElementById('phases');
+            phasesContainer.innerHTML = '';
+            
+            if (!progressData.phases) return;
+            
+            progressData.phases.forEach(phase => {
+                const phaseCard = document.createElement('div');
+                phaseCard.className = `phase-card ${phase.status}`;
+                
+                phaseCard.innerHTML = `
+                    <div class="phase-header">
+                        <h3>${phase.name}</h3>
+                        <span>${phase.progress || 0}%</span>
+                    </div>
+                    <div class="phase-progress">
+                        <div class="phase-progress-fill" style="width: ${phase.progress || 0}%"></div>
+                    </div>
+                    <ul class="task-list">
+                        ${phase.tasks ? phase.tasks.map(task => `
+                            <li class="task-item">
+                                <div class="task-status ${task.status}"></div>
+                                <span>${task.name}</span>
+                            </li>
+                        `).join('') : ''}
+                    </ul>
+                `;
+                
+                phasesContainer.appendChild(phaseCard);
+            });
+        }
+        
+        function updateServices() {
+            const servicesContainer = document.getElementById('services');
+            servicesContainer.innerHTML = '';
+            
+            if (!progressData.services) return;
+            
+            progressData.services.forEach(service => {
+                const serviceCard = document.createElement('div');
+                serviceCard.className = 'service-card';
+                
+                serviceCard.innerHTML = `
+                    <h3>${service.name}</h3>
+                    <p>
+                        <span class="service-status ${service.status}"></span>
+                        ${service.status.toUpperCase()}
+                    </p>
+                    <p><small>${service.url}</small></p>
+                    ${service.ssl ? '<p>🔒 SSL Enabled</p>' : '<p>🔓 SSL Pending</p>'}
+                `;
+                
+                servicesContainer.appendChild(serviceCard);
+            });
+        }
+        
+        function updateActivities() {
+            const activitiesContainer = document.getElementById('activityList');
+            activitiesContainer.innerHTML = '';
+            
+            if (!progressData.recent_activities) return;
+            
+            progressData.recent_activities.forEach(activity => {
+                const activityItem = document.createElement('div');
+                activityItem.className = 'activity-item';
+                
+                activityItem.innerHTML = `
+                    <div class="activity-time">${activity.time}</div>
+                    <div class="activity-message">${activity.message}</div>
+                `;
+                
+                activitiesContainer.appendChild(activityItem);
+            });
+        }
+        
+        function showRefreshIndicator() {
+            const indicator = document.getElementById('refreshIndicator');
+            indicator.style.display = 'block';
+            setTimeout(() => {
+                indicator.style.display = 'none';
+            }, 1000);
+        }
+        
+        // Load initial data
+        loadProgress();
+        
+        // Refresh every 10 seconds
+        setInterval(loadProgress, 10000);
+        
+        // Update timestamp display
+        setInterval(() => {
+            if (progressData.timestamp) {
+                const lastUpdate = new Date(progressData.timestamp);
+                document.title = `Deployment Progress (${lastUpdate.toLocaleTimeString()})`;
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

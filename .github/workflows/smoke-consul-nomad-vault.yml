@@ -1,0 +1,155 @@
+name: smoke-consul-nomad-vault
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"  # daily @ 03:17 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-cnv
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Smoke test Consul/Nomad/Vault via SSH tunnels
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${SERVER_HOST:-}" ]] || { echo "❌ Missing SERVER_HOST"; exit 1; }
+          [[ -n "${SERVER_USER:-}" ]] || { echo "❌ Missing SERVER_USER"; exit 1; }
+          echo "Target: ${SERVER_USER}@${SERVER_HOST}"
+
+      - name: Checkout (optional)
+        uses: actions/checkout@v4
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Add host key
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+
+      - name: Start SSH tunnels (8500 Consul, 4646 Nomad, 8200 Vault)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Use a control socket so we can cleanly stop tunnels later
+          ssh -M -S /tmp/gh-ssh-tunnel -fNT \
+            -o ExitOnForwardFailure=yes \
+            -L 8500:127.0.0.1:8500 \
+            -L 4646:127.0.0.1:4646 \
+            -L 8200:127.0.0.1:8200 \
+            "${SERVER_USER}@${SERVER_HOST}"
+          # Verify socket
+          ssh -S /tmp/gh-ssh-tunnel -O check "${SERVER_USER}@${SERVER_HOST}"
+
+      - name: Consul leader
+        id: consul
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESP="$(curl -sS --fail http://127.0.0.1:8500/v1/status/leader || true)"
+          echo "$RESP" | tee /tmp/consul_leader.txt
+          # Expect a quoted address like "10.0.0.1:8300" or empty when no leader
+          LEADER="$(echo "$RESP" | tr -d '"' | tr -d '\n' | xargs)"
+          if [[ -z "$LEADER" || "$LEADER" == "[]" || "$LEADER" == "null" ]]; then
+            echo "❌ Consul has no leader"
+            exit 2
+          fi
+          echo "leader=$LEADER" >> "$GITHUB_OUTPUT"
+
+      - name: Nomad leader
+        id: nomad_leader
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESP="$(curl -sS --fail http://127.0.0.1:4646/v1/status/leader || true)"
+          echo "$RESP" | tee /tmp/nomad_leader.txt
+          LEADER="$(echo "$RESP" | tr -d '"' | tr -d '\n' | xargs)"
+          if [[ -z "$LEADER" || "$LEADER" == "[]" || "$LEADER" == "null" ]]; then
+            echo "❌ Nomad has no leader"
+            exit 3
+          fi
+          echo "leader=$LEADER" >> "$GITHUB_OUTPUT"
+
+      - name: Nomad agent health
+        id: nomad_health
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESP="$(curl -sS --fail http://127.0.0.1:4646/v1/agent/health || true)"
+          echo "$RESP" | tee /tmp/nomad_agent_health.json
+          OK="$(echo "$RESP" | jq -r '.ok // empty')"
+          if [[ "$OK" != "true" ]]; then
+            echo "❌ Nomad agent health not OK"
+            exit 4
+          fi
+
+      - name: Vault health
+        id: vault
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl -sS -o /tmp/vault_health.json -w '%{http_code}' http://127.0.0.1:8200/v1/sys/health || true)"
+          echo "Vault /sys/health HTTP $CODE"
+          cat /tmp/vault_health.json || true
+          # Accept 200 (active) or 429 (standby). Anything else -> fail.
+          if [[ "$CODE" != "200" && "$CODE" != "429" ]]; then
+            echo "❌ Vault not healthy (expect 200 active or 429 standby)"; exit 5
+          fi
+
+      - name: Summarize results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## CNV Smoke Summary"
+            echo ""
+            echo "- Consul leader: \`${{ steps.consul.outputs.leader || 'n/a' }}\`"
+            echo "- Nomad leader:  \`${{ steps.nomad_leader.outputs.leader || 'n/a' }}\`"
+            echo "- Nomad health:  ✅ ok"
+            echo "- Vault health:  ✅ 200(active) or 429(standby) accepted"
+            echo ""
+            echo "> Artifacts: consul_leader.txt, nomad_leader.txt, nomad_agent_health.json, vault_health.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cnv-smoke-artifacts
+          path: |
+            /tmp/consul_leader.txt
+            /tmp/nomad_leader.txt
+            /tmp/nomad_agent_health.json
+            /tmp/vault_health.json
+          if-no-files-found: ignore
+
+      - name: Stop SSH tunnels
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -S /tmp/gh-ssh-tunnel -O exit "${SERVER_USER}@${SERVER_HOST}" || true

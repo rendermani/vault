@@ -1,0 +1,193 @@
+---
+# Docker Installation Tasks for Phase 1 Bootstrap
+
+- name: Remove old Docker versions
+  apt:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - docker
+    - docker-engine
+    - docker.io
+    - containerd
+    - runc
+  when: ansible_os_family == "Debian"
+
+- name: Install Docker dependencies
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - software-properties-common
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Add Docker GPG apt key
+  apt_key:
+    url: "{{ docker_apt_key_url }}"
+    id: "{{ docker_apt_key_id }}"
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "{{ docker_apt_repository }}"
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install Docker CE
+  apt:
+    name:
+      - "docker-ce={{ docker_version }}"
+      - "docker-ce-cli={{ docker_version }}"
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Hold Docker packages to prevent automatic updates
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - docker-ce
+    - docker-ce-cli
+    - containerd.io
+  when: ansible_os_family == "Debian"
+
+- name: Create Docker configuration directory
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+- name: Configure Docker daemon
+  copy:
+    content: "{{ docker_daemon_config | to_nice_json }}"
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+    backup: yes
+  notify: restart docker
+
+- name: Create systemd override directory for Docker
+  file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: '0755'
+
+- name: Configure Docker systemd service
+  copy:
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+      ExecReload=/bin/kill -s HUP $MAINPID
+      TimeoutStartSec=0
+      RestartSec=2
+      Restart=always
+      StartLimitBurst=3
+      StartLimitInterval=60s
+      LimitNOFILE=infinity
+      LimitNPROC=infinity
+      LimitCORE=infinity
+      TasksMax=infinity
+      Delegate=yes
+      Type=notify
+      KillMode=process
+    dest: /etc/systemd/system/docker.service.d/override.conf
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart docker
+
+- name: Add users to docker group
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: yes
+  loop: "{{ docker_users }}"
+  when: docker_users | length > 0
+
+- name: Enable and start Docker service
+  systemd:
+    name: docker
+    enabled: "{{ docker_service_enabled }}"
+    state: "{{ docker_service_state }}"
+    daemon_reload: yes
+
+- name: Install Docker Compose standalone (backup method)
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"
+    dest: /usr/local/bin/docker-compose
+    mode: '0755'
+    owner: root
+    group: root
+  when: install_docker_compose | bool
+
+- name: Create symbolic link for docker-compose
+  file:
+    src: /usr/local/bin/docker-compose
+    dest: /usr/bin/docker-compose
+    state: link
+  when: install_docker_compose | bool
+
+- name: Set up Docker log rotation
+  copy:
+    content: |
+      /var/lib/docker/containers/*/*.log {
+          rotate 7
+          daily
+          compress
+          size 10M
+          missingok
+          delaycompress
+          copytruncate
+      }
+    dest: /etc/logrotate.d/docker-containers
+    mode: '0644'
+
+- name: Set up Docker system prune cron job
+  cron:
+    name: "Docker system prune"
+    minute: "0"
+    hour: "3"
+    weekday: "0"
+    job: "/usr/bin/docker system prune -af --volumes"
+    user: root
+  when: docker_prune_enabled | bool
+
+- name: Verify Docker installation
+  command: docker --version
+  register: docker_version_check
+  changed_when: false
+
+- name: Display Docker version
+  debug:
+    var: docker_version_check.stdout
+
+- name: Test Docker functionality
+  docker_container:
+    name: hello-world-test
+    image: hello-world
+    state: started
+    auto_remove: yes
+    detach: no
+  register: docker_test
+  ignore_errors: yes
+
+- name: Verify Docker test result
+  debug:
+    msg: "Docker installation successful - hello-world container ran successfully"
+  when: docker_test is succeeded
+
+- name: Fail if Docker test failed
+  fail:
+    msg: "Docker installation failed - hello-world container test failed"
+  when: docker_test is failed

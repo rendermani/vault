@@ -1,0 +1,140 @@
+---
+- name: Production Environment Bootstrap
+  hosts: all
+  become: yes
+  gather_facts: yes
+  serial: 1  # Deploy to production hosts one at a time
+  
+  pre_tasks:
+    - name: Production deployment warning
+      pause:
+        prompt: |
+          ⚠️  PRODUCTION DEPLOYMENT WARNING ⚠️
+          =====================================
+          
+          You are about to deploy to PRODUCTION environment!
+          
+          Environment: {{ environment | default('production') }}
+          Target Host: {{ inventory_hostname }}
+          
+          This will apply maximum security hardening and may disrupt services.
+          
+          Are you sure you want to continue? Press ENTER to continue or Ctrl+C to abort.
+
+    - name: Display environment information
+      debug:
+        msg:
+          - "=== Production Environment Bootstrap ==="
+          - "Environment: {{ environment | default('production') }}"
+          - "Target Host: {{ inventory_hostname }}"
+          - "Security Hardening: MAXIMUM"
+          - "ACL Security: ENABLED"
+          - "TLS Encryption: ENABLED"
+          - ""
+          - "This is a production environment with maximum security."
+
+    - name: Create maintenance mode marker
+      file:
+        path: /var/tmp/maintenance-mode
+        state: touch
+        mode: '0644'
+
+    - name: Update apt cache and apply security updates
+      apt:
+        update_cache: yes
+        upgrade: safe
+        autoremove: yes
+        cache_valid_time: 1800
+
+  tasks:
+    - name: Apply maximum system hardening
+      import_tasks: ../roles/system-hardening/tasks/main.yml
+      tags: security
+
+    - name: Configure production firewall
+      import_tasks: ../tasks/firewall-production.yml
+      tags: firewall
+
+    - name: Install Docker with security configurations
+      import_tasks: ../roles/docker-installation/tasks/main.yml
+      tags: docker
+
+    - name: Install and configure Consul with ACLs
+      import_tasks: ../tasks/consul-production.yml
+      tags: consul
+
+    - name: Install and configure Nomad with security
+      import_tasks: ../tasks/nomad-production.yml
+      tags: nomad
+
+    - name: Configure monitoring and alerting
+      import_tasks: ../tasks/monitoring-production.yml
+      tags: monitoring
+      when: enable_monitoring | default(true)
+
+    - name: Configure backup procedures
+      import_tasks: ../tasks/backup-production.yml
+      tags: backup
+      when: enable_backups | default(true)
+
+  post_tasks:
+    - name: Verify all production services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - ufw
+        - fail2ban
+        - docker
+        - consul
+        - nomad
+
+    - name: Comprehensive health check
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}:{{ item.port }}{{ item.path }}"
+        method: GET
+        timeout: 30
+        validate_certs: no
+      register: service_health
+      retries: 10
+      delay: 10
+      loop:
+        - { port: 8500, path: "/v1/status/leader" }
+        - { port: 4646, path: "/v1/status/leader" }
+
+    - name: Remove maintenance mode marker
+      file:
+        path: /var/tmp/maintenance-mode
+        state: absent
+
+    - name: Send production deployment notification
+      uri:
+        url: "{{ webhook_url }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          text: "Production deployment completed successfully on {{ inventory_hostname }}"
+        timeout: 10
+      when: webhook_url is defined
+      ignore_errors: yes
+
+    - name: Display production access information
+      debug:
+        msg:
+          - "=== Production Environment Ready ==="
+          - "Services are running with maximum security"
+          - "Access URLs (behind reverse proxy):"
+          - "- Consul: https://{{ ansible_default_ipv4.address }}/consul"
+          - "- Nomad: https://{{ ansible_default_ipv4.address }}/nomad"
+          - ""
+          - "Security features enabled:"
+          - "- Maximum system hardening"
+          - "- Consul ACLs with deny-by-default"
+          - "- TLS encryption"
+          - "- Advanced firewall rules"
+          - "- Fail2ban protection"
+          - "- Monitoring and alerting"
+          - "- Automated backups"

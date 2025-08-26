@@ -1,0 +1,68 @@
+---
+- name: Vault Infrastructure Bootstrap - Phase 1
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display bootstrap information
+      debug:
+        msg:
+          - "=== Vault Infrastructure Bootstrap - Phase 1 ==="
+          - "This playbook will configure:"
+          - "1. System hardening and base packages"
+          - "2. UFW firewall (ports 22, 80, 443)"
+          - "3. Docker installation"
+          - "4. Consul cluster (localhost only)"
+          - "5. Nomad without Vault integration"
+          - ""
+          - "Target environment: {{ ansible_inventory_sources }}"
+
+- import_playbook: playbooks/system-hardening.yml
+- import_playbook: playbooks/firewall.yml
+- import_playbook: playbooks/docker.yml
+- import_playbook: playbooks/consul.yml
+- import_playbook: playbooks/nomad.yml
+
+- name: Post-Installation Verification
+  hosts: all
+  become: yes
+  tasks:
+    - name: Verify all services are running
+      systemd:
+        name: "{{ item }}"
+        state: started
+      register: service_status
+      loop:
+        - docker
+        - consul
+        - nomad
+        - fail2ban
+        - ufw
+
+    - name: Check service ports
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ item }}"
+        timeout: 10
+      loop:
+        - 8500  # Consul
+        - 4646  # Nomad
+
+    - name: Display final status
+      debug:
+        msg:
+          - "=== Phase 1 Bootstrap Complete ==="
+          - "Services Status:"
+          - "✓ Docker: Running"
+          - "✓ Consul: Running on 127.0.0.1:8500"
+          - "✓ Nomad: Running on 127.0.0.1:4646"
+          - "✓ UFW: Active (ports 22, 80, 443 open)"
+          - "✓ Fail2ban: Active"
+          - ""
+          - "Next Steps:"
+          - "1. Configure Vault in Phase 2"
+          - "2. Integrate Vault with Nomad"
+          - "3. Deploy applications via Nomad"
+          - ""
+          - "Access Points:"
+          - "- Consul UI: http://YOUR_SERVER_IP:8500"
+          - "- Nomad UI: http://YOUR_SERVER_IP:4646"

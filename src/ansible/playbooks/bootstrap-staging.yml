@@ -1,0 +1,82 @@
+---
+- name: Staging Environment Bootstrap
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Display environment information
+      debug:
+        msg:
+          - "=== Staging Environment Bootstrap ==="
+          - "Environment: {{ environment | default('staging') }}"
+          - "Target Host: {{ inventory_hostname }}"
+          - "Security Hardening: ENABLED"
+          - "ACL Security: ENABLED"
+          - ""
+          - "This is a staging environment with production-like security."
+
+    - name: Update apt cache and upgrade system
+      apt:
+        update_cache: yes
+        upgrade: safe
+        cache_valid_time: 3600
+
+  tasks:
+    - name: Apply system hardening
+      import_tasks: ../roles/system-hardening/tasks/main.yml
+      tags: security
+
+    - name: Configure firewall
+      import_tasks: ../tasks/firewall-staging.yml
+      tags: firewall
+
+    - name: Install Docker
+      import_tasks: ../roles/docker-installation/tasks/main.yml
+      tags: docker
+
+    - name: Install and configure Consul
+      import_tasks: ../tasks/consul-staging.yml
+      tags: consul
+
+    - name: Install and configure Nomad
+      import_tasks: ../tasks/nomad-staging.yml
+      tags: nomad
+
+  post_tasks:
+    - name: Verify staging services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - ufw
+        - fail2ban
+        - docker
+        - consul
+        - nomad
+
+    - name: Wait for services to be fully ready
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}:{{ item.port }}{{ item.path }}"
+        method: GET
+        timeout: 10
+      register: service_check
+      retries: 5
+      delay: 10
+      loop:
+        - { port: 8500, path: "/v1/status/leader" }
+        - { port: 4646, path: "/v1/status/leader" }
+
+    - name: Display staging access information
+      debug:
+        msg:
+          - "=== Staging Environment Ready ==="
+          - "Consul UI: http://{{ ansible_default_ipv4.address }}:8500"
+          - "Nomad UI: http://{{ ansible_default_ipv4.address }}:4646"
+          - ""
+          - "Security features enabled:"
+          - "- Consul ACLs enabled"
+          - "- UFW firewall active"
+          - "- Fail2ban protection"
+          - "- System hardening applied"

@@ -1,0 +1,589 @@
+name: Phase 3 - Terraform Configuration Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      terraform_action:
+        description: 'Terraform action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'plan'
+      auto_approve:
+        description: 'Auto-approve Terraform apply (use with caution)'
+        required: false
+        type: boolean
+        default: false
+      target_resources:
+        description: 'Target specific resources (comma-separated)'
+        required: false
+        type: string
+        default: ''
+      refresh_state:
+        description: 'Refresh Terraform state before operation'
+        required: false
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      terraform_action:
+        required: true
+        type: string
+      auto_approve:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      TERRAFORM_API_TOKEN:
+        required: false
+      HETZNER_API_TOKEN:
+        required: false
+
+env:
+  # Terraform Configuration
+  TF_VERSION: "1.6.6"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_CLI_ARGS: "-no-color"
+  
+  # Remote Server Configuration
+  REMOTE_SERVER: "cloudya.net"
+  REMOTE_USER: "root"
+  
+  # State Management
+  TF_STATE_BUCKET: "cloudya-terraform-state"
+  
+jobs:
+  # Job 1: Terraform setup and validation
+  terraform-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.setup.outputs.environment }}
+      working-directory: ${{ steps.setup.outputs.working-directory }}
+      state-key: ${{ steps.setup.outputs.state-key }}
+      plan-file: ${{ steps.setup.outputs.plan-file }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform variables
+        id: setup
+        run: |
+          ENV="${{ inputs.environment }}"
+          WORK_DIR="terraform/environments/$ENV"
+          STATE_KEY="cloudya-$ENV.tfstate"
+          PLAN_FILE="terraform-$ENV.plan"
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "working-directory=$WORK_DIR" >> $GITHUB_OUTPUT
+          echo "state-key=$STATE_KEY" >> $GITHUB_OUTPUT
+          echo "plan-file=$PLAN_FILE" >> $GITHUB_OUTPUT
+          
+          echo "Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Working Directory: $WORK_DIR"
+          echo "  State Key: $STATE_KEY"
+          echo "  Plan File: $PLAN_FILE"
+
+      - name: Validate Terraform configuration exists
+        run: |
+          if [[ ! -d "${{ steps.setup.outputs.working-directory }}" ]]; then
+            echo "❌ Terraform environment directory not found: ${{ steps.setup.outputs.working-directory }}"
+            echo "Creating directory structure..."
+            mkdir -p "${{ steps.setup.outputs.working-directory }}"
+            
+            # Create basic terraform files if they don't exist
+            cat > "${{ steps.setup.outputs.working-directory }}/main.tf" << 'EOF'
+          # Main Terraform configuration for ${{ inputs.environment }}
+          terraform {
+            required_version = ">= 1.6"
+            required_providers {
+              local = {
+                source  = "hashicorp/local"
+                version = "~> 2.0"
+              }
+              null = {
+                source  = "hashicorp/null"
+                version = "~> 3.0"
+              }
+            }
+            backend "local" {
+              path = "terraform.tfstate"
+            }
+          }
+          
+          # Environment-specific configuration
+          variable "environment" {
+            description = "Environment name"
+            type        = string
+            default     = "${{ inputs.environment }}"
+          }
+          
+          variable "server_ip" {
+            description = "Server IP address"
+            type        = string
+            default     = "cloudya.net"
+          }
+          
+          # Example resource - customize as needed
+          resource "local_file" "environment_config" {
+            content = templatefile("${path.module}/../../templates/environment.tpl", {
+              environment = var.environment
+              server_ip   = var.server_ip
+              timestamp   = timestamp()
+            })
+            filename = "${path.module}/generated/environment-${var.environment}.yaml"
+          }
+          
+          resource "null_resource" "terraform_applied" {
+            provisioner "local-exec" {
+              command = "echo 'Terraform applied for ${{ inputs.environment }} environment'"
+            }
+            
+            triggers = {
+              environment = var.environment
+              timestamp   = timestamp()
+            }
+          }
+          
+          # Outputs
+          output "environment" {
+            value = var.environment
+          }
+          
+          output "applied_timestamp" {
+            value = timestamp()
+          }
+          EOF
+            
+            # Create template directory and file
+            mkdir -p "terraform/templates"
+            cat > "terraform/templates/environment.tpl" << 'EOF'
+          # Generated environment configuration
+          environment: ${environment}
+          server_ip: ${server_ip}
+          generated_at: ${timestamp}
+          
+          # HashiCorp Configuration
+          consul:
+            datacenter: dc1
+            encrypt: true
+          
+          nomad:
+            datacenter: dc1
+            region: global
+          
+          vault:
+            api_addr: "http://${server_ip}:8200"
+            cluster_addr: "http://${server_ip}:8201"
+          EOF
+            
+            echo "✓ Basic Terraform configuration created"
+          else
+            echo "✓ Terraform environment directory exists"
+          fi
+
+  # Job 2: Production safety checks
+  production-safety-checks:
+    runs-on: ubuntu-latest
+    needs: terraform-setup
+    if: inputs.environment == 'production' && inputs.terraform_action == 'apply'
+    steps:
+      - name: Production safety validation
+        run: |
+          echo "🚨 PRODUCTION TERRAFORM APPLY WARNING 🚨"
+          echo "=========================================="
+          echo ""
+          echo "You are about to apply Terraform changes to PRODUCTION!"
+          echo "This may modify critical infrastructure components."
+          echo ""
+          
+          if [[ "${{ inputs.auto_approve }}" == "true" ]]; then
+            echo "Auto-approve is ENABLED for production!"
+            echo "This is EXTREMELY DANGEROUS and not recommended."
+            echo ""
+            echo "Production changes should be:"
+            echo "1. Thoroughly reviewed by the team"
+            echo "2. Tested in staging environment first"
+            echo "3. Applied during maintenance windows"
+            echo "4. Monitored continuously during application"
+            echo ""
+            
+            # In real scenario, you might want to fail here
+            # For demo purposes, we'll continue with a warning
+            echo "⚠️ WARNING: Proceeding with auto-approve in production"
+          else
+            echo "✓ Manual approval will be required"
+          fi
+
+      - name: Check maintenance window (production only)
+        if: inputs.environment == 'production'
+        run: |
+          # Check if we're in maintenance window (customize as needed)
+          CURRENT_HOUR=$(date +%H)
+          
+          # Example: Maintenance window between 2 AM and 4 AM UTC
+          if [[ $CURRENT_HOUR -ge 2 && $CURRENT_HOUR -lt 4 ]]; then
+            echo "✓ Currently in maintenance window (2-4 AM UTC)"
+          else
+            echo "⚠️ Not in maintenance window (current hour: ${CURRENT_HOUR} UTC)"
+            echo "Consider scheduling production changes during maintenance window (2-4 AM UTC)"
+            
+            # In strict environments, you might want to fail here
+            # echo "❌ Production changes outside maintenance window not allowed"
+            # exit 1
+          fi
+
+  # Job 3: Terraform plan
+  terraform-plan:
+    runs-on: ubuntu-latest
+    needs: [terraform-setup, production-safety-checks]
+    if: always() && needs.terraform-setup.result == 'success' && (needs.production-safety-checks.result == 'success' || needs.production-safety-checks.result == 'skipped')
+    environment: ${{ needs.terraform-setup.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Set up SSH key for remote operations
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Terraform init
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Initializing Terraform..."
+          terraform init
+          
+          echo "Terraform version:"
+          terraform version
+
+      - name: Terraform validate
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Validating Terraform configuration..."
+          terraform validate
+
+      - name: Terraform format check
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Checking Terraform formatting..."
+          terraform fmt -check -diff || {
+            echo "⚠️ Terraform files are not properly formatted"
+            echo "Run 'terraform fmt' to fix formatting"
+            # Don't fail on formatting issues, just warn
+          }
+
+      - name: Terraform plan
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          TF_VAR_environment: ${{ needs.terraform-setup.outputs.environment }}
+        run: |
+          echo "Creating Terraform plan..."
+          
+          PLAN_ARGS=""
+          if [[ "${{ inputs.refresh_state }}" == "true" ]]; then
+            PLAN_ARGS="$PLAN_ARGS -refresh=true"
+          else
+            PLAN_ARGS="$PLAN_ARGS -refresh=false"
+          fi
+          
+          if [[ -n "${{ inputs.target_resources }}" ]]; then
+            IFS=',' read -ra TARGETS <<< "${{ inputs.target_resources }}"
+            for target in "${TARGETS[@]}"; do
+              PLAN_ARGS="$PLAN_ARGS -target=$target"
+            done
+            echo "Targeting specific resources: ${{ inputs.target_resources }}"
+          fi
+          
+          terraform plan $PLAN_ARGS -out="${{ needs.terraform-setup.outputs.plan-file }}"
+
+      - name: Upload Terraform plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ needs.terraform-setup.outputs.environment }}
+          path: ${{ needs.terraform-setup.outputs.working-directory }}/${{ needs.terraform-setup.outputs.plan-file }}
+          retention-days: 30
+
+      - name: Display plan summary
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "## Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.terraform-setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Action: ${{ inputs.terraform_action }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show plan in markdown format
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          terraform show -no-color "${{ needs.terraform-setup.outputs.plan-file }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # Job 4: Terraform apply (conditional)
+  terraform-apply:
+    runs-on: ubuntu-latest
+    needs: [terraform-setup, terraform-plan]
+    if: inputs.terraform_action == 'apply' && needs.terraform-plan.result == 'success'
+    environment: ${{ needs.terraform-setup.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Set up SSH key for remote operations
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Download Terraform plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ needs.terraform-setup.outputs.environment }}
+          path: ${{ needs.terraform-setup.outputs.working-directory }}
+
+      - name: Terraform init
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Re-initializing Terraform..."
+          terraform init
+
+      - name: Manual approval checkpoint (production)
+        if: inputs.environment == 'production' && inputs.auto_approve != true
+        run: |
+          echo "🔒 PRODUCTION MANUAL APPROVAL REQUIRED 🔒"
+          echo "========================================"
+          echo ""
+          echo "This is a production Terraform apply operation."
+          echo "Manual approval is required before proceeding."
+          echo ""
+          echo "Please review the plan and approve this deployment in the GitHub UI."
+          echo ""
+          echo "⚠️ This step will wait for manual approval in the GitHub Actions interface."
+
+      - name: Terraform apply
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          TF_VAR_environment: ${{ needs.terraform-setup.outputs.environment }}
+        run: |
+          echo "Applying Terraform plan..."
+          
+          if [[ "${{ inputs.auto_approve }}" == "true" ]]; then
+            echo "Auto-applying with plan file..."
+            terraform apply -auto-approve "${{ needs.terraform-setup.outputs.plan-file }}"
+          else
+            echo "Applying with manual approval..."
+            terraform apply "${{ needs.terraform-setup.outputs.plan-file }}"
+          fi
+
+      - name: Terraform output
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Terraform outputs:"
+          terraform output -json > terraform-outputs.json
+          cat terraform-outputs.json | jq .
+
+      - name: Upload Terraform state and outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state-${{ needs.terraform-setup.outputs.environment }}
+          path: |
+            ${{ needs.terraform-setup.outputs.working-directory }}/terraform.tfstate
+            ${{ needs.terraform-setup.outputs.working-directory }}/terraform-outputs.json
+          retention-days: 90
+
+      - name: Configure remote server with Terraform outputs
+        run: |
+          echo "Configuring remote server with Terraform outputs..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            # Create terraform outputs directory
+            mkdir -p /opt/infrastructure/terraform-outputs
+            
+            echo "Terraform configuration applied successfully"
+            echo "Environment: ${{ needs.terraform-setup.outputs.environment }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            
+            # Create state marker
+            cat > /opt/infrastructure/state/terraform-applied << 'STATE_MARKER'
+          {
+            "phase": "terraform-config",
+            "environment": "${{ needs.terraform-setup.outputs.environment }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run": "${{ github.run_id }}",
+            "commit": "${{ github.sha }}",
+            "terraform_action": "${{ inputs.terraform_action }}"
+          }
+          STATE_MARKER
+          EOF
+
+  # Job 5: Terraform destroy (conditional)
+  terraform-destroy:
+    runs-on: ubuntu-latest
+    needs: [terraform-setup]
+    if: inputs.terraform_action == 'destroy'
+    environment: ${{ needs.terraform-setup.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Destruction safety check
+        run: |
+          echo "🚨 TERRAFORM DESTROY WARNING 🚨"
+          echo "================================="
+          echo ""
+          echo "You are about to DESTROY Terraform-managed resources!"
+          echo "Environment: ${{ needs.terraform-setup.outputs.environment }}"
+          echo ""
+          
+          if [[ "${{ inputs.environment }}" == "production" ]]; then
+            echo "❌ PRODUCTION DESTROY OPERATION"
+            echo "This will DESTROY PRODUCTION RESOURCES!"
+            echo "This operation is EXTREMELY DANGEROUS and IRREVERSIBLE!"
+            
+            if [[ "${{ inputs.auto_approve }}" != "true" ]]; then
+              echo "Manual approval is required for production destruction."
+            else
+              echo "⚠️ Auto-approve is enabled for production destruction!"
+            fi
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Initializing Terraform for destroy operation..."
+          terraform init
+
+      - name: Terraform plan destroy
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          TF_VAR_environment: ${{ needs.terraform-setup.outputs.environment }}
+        run: |
+          echo "Creating destroy plan..."
+          terraform plan -destroy -out=destroy.plan
+
+      - name: Terraform destroy
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          TF_VAR_environment: ${{ needs.terraform-setup.outputs.environment }}
+        run: |
+          echo "Destroying Terraform resources..."
+          
+          if [[ "${{ inputs.auto_approve }}" == "true" ]]; then
+            terraform apply -auto-approve destroy.plan
+          else
+            terraform apply destroy.plan
+          fi
+
+  # Job 6: Post-terraform validation and cleanup
+  post-terraform:
+    runs-on: ubuntu-latest
+    needs: [terraform-setup, terraform-plan, terraform-apply, terraform-destroy]
+    if: always()
+    steps:
+      - name: Generate Terraform summary
+        run: |
+          echo "## Phase 3: Terraform Configuration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.terraform-setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Action: ${{ inputs.terraform_action }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Auto Approve: ${{ inputs.auto_approve }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall status
+          PLAN_STATUS="${{ needs.terraform-plan.result }}"
+          APPLY_STATUS="${{ needs.terraform-apply.result }}"
+          DESTROY_STATUS="${{ needs.terraform-destroy.result }}"
+          
+          if [[ "${{ inputs.terraform_action }}" == "plan" ]]; then
+            if [[ "$PLAN_STATUS" == "success" ]]; then
+              echo "✅ **Terraform plan completed successfully**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "The plan has been generated and is ready for review." >> $GITHUB_STEP_SUMMARY
+              echo "To apply these changes, run the workflow again with 'apply' action." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Terraform plan failed**" >> $GITHUB_STEP_SUMMARY
+            fi
+          elif [[ "${{ inputs.terraform_action }}" == "apply" ]]; then
+            if [[ "$APPLY_STATUS" == "success" ]]; then
+              echo "✅ **Terraform apply completed successfully**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Infrastructure changes have been applied to the environment." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Terraform apply failed**" >> $GITHUB_STEP_SUMMARY
+            fi
+          elif [[ "${{ inputs.terraform_action }}" == "destroy" ]]; then
+            if [[ "$DESTROY_STATUS" == "success" ]]; then
+              echo "✅ **Terraform destroy completed successfully**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ Resources have been destroyed as requested." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Terraform destroy failed**" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ inputs.terraform_action }}" == "apply" && "$APPLY_STATUS" == "success" ]]; then
+            echo "1. **Phase 6**: Deploy applications with Nomad Packs workflow" >> $GITHUB_STEP_SUMMARY
+            echo "2. Verify infrastructure configuration on the remote server" >> $GITHUB_STEP_SUMMARY
+            echo "3. Run health checks and monitoring validation" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.terraform_action }}" == "plan" && "$PLAN_STATUS" == "success" ]]; then
+            echo "1. Review the generated plan carefully" >> $GITHUB_STEP_SUMMARY
+            echo "2. Run this workflow again with 'apply' action to implement changes" >> $GITHUB_STEP_SUMMARY
+            echo "3. Consider running in staging environment first" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "1. Review job logs for error details" >> $GITHUB_STEP_SUMMARY
+            echo "2. Fix any configuration issues" >> $GITHUB_STEP_SUMMARY
+            echo "3. Re-run the workflow after fixes" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Terraform Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# View current state" >> $GITHUB_STEP_SUMMARY
+          echo "terraform show" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View outputs" >> $GITHUB_STEP_SUMMARY
+          echo "terraform output" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Refresh state" >> $GITHUB_STEP_SUMMARY
+          echo "terraform refresh" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa

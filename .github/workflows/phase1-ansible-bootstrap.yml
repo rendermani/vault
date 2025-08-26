@@ -1,0 +1,471 @@
+name: Phase 1 - Ansible Bootstrap Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      server_config:
+        description: 'Server configuration profile'
+        required: false
+        type: choice
+        options:
+          - single-node
+          - ha-cluster
+          - minimal
+        default: 'single-node'
+      force_bootstrap:
+        description: 'Force complete system bootstrap (destructive)'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Perform dry run without actual changes'
+        required: false
+        type: boolean
+        default: false
+      skip_security_hardening:
+        description: 'Skip security hardening steps (dev only)'
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      server_config:
+        required: false
+        type: string
+        default: 'single-node'
+      force_bootstrap:
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Server Configuration - Use secrets for security
+  REMOTE_SERVER: ${{ secrets.REMOTE_SERVER || 'cloudya.net' }}
+  REMOTE_USER: ${{ secrets.REMOTE_USER || 'root' }}
+  REMOTE_PORT: ${{ secrets.REMOTE_PORT || '22' }}
+  
+  # Ansible Configuration
+  ANSIBLE_HOST_KEY_CHECKING: "false"
+  ANSIBLE_STDOUT_CALLBACK: "yaml"
+  ANSIBLE_FORCE_COLOR: "true"
+  
+  # Security
+  ANSIBLE_VAULT_PASSWORD_FILE: "/tmp/.vault_pass"
+
+jobs:
+  # Job 1: Pre-deployment validation and setup
+  validate-bootstrap:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.setup-vars.outputs.environment }}
+      server-config: ${{ steps.setup-vars.outputs.server-config }}
+      ansible-playbook: ${{ steps.setup-vars.outputs.ansible-playbook }}
+      skip-security: ${{ steps.setup-vars.outputs.skip-security }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up variables
+        id: setup-vars
+        run: |
+          ENV="${{ inputs.environment || 'develop' }}"
+          CONFIG="${{ inputs.server_config || 'single-node' }}"
+          SKIP_SEC="${{ inputs.skip_security_hardening || 'false' }}"
+          
+          # Validate environment
+          case $ENV in
+            develop|staging|production)
+              echo "✓ Valid environment: $ENV"
+              ;;
+            *)
+              echo "❌ Invalid environment: $ENV"
+              exit 1
+              ;;
+          esac
+          
+          # Set environment-specific configurations
+          case $ENV in
+            develop)
+              PLAYBOOK="bootstrap-dev.yml"
+              if [[ "$SKIP_SEC" == "true" ]]; then
+                echo "⚠️ Security hardening will be skipped for development"
+              fi
+              ;;
+            staging)
+              PLAYBOOK="bootstrap-staging.yml"
+              SKIP_SEC="false"  # Force security for staging
+              ;;
+            production)
+              PLAYBOOK="bootstrap-production.yml"
+              SKIP_SEC="false"  # Force security for production
+              ;;
+          esac
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "server-config=$CONFIG" >> $GITHUB_OUTPUT
+          echo "ansible-playbook=$PLAYBOOK" >> $GITHUB_OUTPUT
+          echo "skip-security=$SKIP_SEC" >> $GITHUB_OUTPUT
+          
+          echo "Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Server Config: $CONFIG"
+          echo "  Ansible Playbook: $PLAYBOOK"
+          echo "  Skip Security: $SKIP_SEC"
+
+      - name: Production safety checks
+        if: inputs.environment == 'production' && inputs.force_bootstrap == true
+        run: |
+          echo "🚨 PRODUCTION BOOTSTRAP WARNING 🚨"
+          echo "======================================"
+          echo "This will COMPLETELY REBUILD the production server!"
+          echo "All existing data and configurations will be DESTROYED!"
+          echo ""
+          echo "This operation is IRREVERSIBLE and EXTREMELY DANGEROUS!"
+          echo ""
+          if [[ "${{ inputs.dry_run }}" != "true" ]]; then
+            echo "❌ Production bootstrap requires manual approval"
+            echo "Please ensure you have proper authorization for this destructive operation"
+            exit 1
+          else
+            echo "✓ Dry run mode - no actual changes will be made"
+          fi
+
+      - name: Validate Ansible configuration
+        run: |
+          echo "Validating Ansible configuration..."
+          
+          # Check if Ansible files exist
+          if [[ ! -d "ansible" ]]; then
+            echo "❌ Ansible directory not found"
+            exit 1
+          fi
+          
+          if [[ ! -f "ansible/inventories/inventory" ]]; then
+            echo "❌ Ansible inventory file not found"
+            exit 1
+          fi
+          
+          echo "✓ Ansible configuration files found"
+
+  # Job 2: Server connectivity and preparation
+  prepare-server:
+    runs-on: ubuntu-latest
+    needs: validate-bootstrap
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Test SSH connectivity
+        run: |
+          echo "Testing SSH connection to ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}..."
+          ssh -o ConnectTimeout=10 -o BatchMode=yes ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} \
+            'echo "SSH connection successful - $(hostname) - $(date)"'
+
+      - name: Gather server information
+        run: |
+          echo "Gathering server information..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            echo "=== Server Information ==="
+            echo "Hostname: $(hostname)"
+            echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')"
+            echo "Kernel: $(uname -r)"
+            echo "Architecture: $(uname -m)"
+            echo "CPU Cores: $(nproc)"
+            echo "Memory: $(free -h | grep Mem | awk '{print $2}')"
+            echo "Disk Space: $(df -h / | tail -1 | awk '{print $2}')"
+            echo "Uptime: $(uptime -p)"
+            
+            echo ""
+            echo "=== Network Configuration ==="
+            ip route get 1.1.1.1 | head -1
+            
+            echo ""
+            echo "=== Current Services ==="
+            systemctl list-units --type=service --state=running | grep -E "(consul|nomad|vault|traefik|docker)" || echo "No HashiCorp services currently running"
+          EOF
+
+      - name: Pre-bootstrap server preparation
+        if: inputs.force_bootstrap == true
+        run: |
+          echo "Preparing server for bootstrap..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "Stopping existing services..."
+            for service in traefik nomad consul vault; do
+              if systemctl is-active --quiet $service 2>/dev/null; then
+                echo "Stopping $service..."
+                systemctl stop $service
+                systemctl disable $service
+              fi
+            done
+            
+            echo "Cleaning up HashiCorp data directories..."
+            rm -rf /opt/consul/data/* /opt/nomad/data/* /opt/vault/data/* 2>/dev/null || true
+            
+            echo "Server prepared for bootstrap"
+          EOF
+
+  # Job 3: Execute Ansible bootstrap
+  ansible-bootstrap:
+    runs-on: ubuntu-latest
+    needs: [validate-bootstrap, prepare-server]
+    environment: ${{ needs.validate-bootstrap.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python and Ansible
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Ansible and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible ansible-core netaddr jmespath
+          ansible-galaxy collection install ansible.posix community.general
+          
+          # Install HashiCorp tools for validation
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update
+          sudo apt-get install -y consul=1.17.0-1 nomad=1.7.2-1 vault=1.15.4-1
+          
+          # Verify installations
+          consul version
+          nomad version
+          vault version
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Set up Ansible Vault password
+        run: |
+          echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > /tmp/.vault_pass
+          chmod 600 /tmp/.vault_pass
+
+      - name: Create dynamic Ansible inventory
+        run: |
+          cd ansible
+          cat > inventories/dynamic-inventory << EOF
+          [hetzner_servers]
+          ${{ env.REMOTE_SERVER }} ansible_user=${{ env.REMOTE_USER }} ansible_port=${{ env.REMOTE_PORT }}
+          
+          [consul_servers]
+          ${{ env.REMOTE_SERVER }}
+          
+          [nomad_servers]
+          ${{ env.REMOTE_SERVER }}
+          
+          [vault_servers]
+          ${{ env.REMOTE_SERVER }}
+          
+          [hetzner_servers:vars]
+          environment=${{ needs.validate-bootstrap.outputs.environment }}
+          server_config=${{ needs.validate-bootstrap.outputs.server-config }}
+          skip_security_hardening=${{ needs.validate-bootstrap.outputs.skip-security }}
+          force_bootstrap=${{ inputs.force_bootstrap || false }}
+          
+          # Environment-specific variables
+          consul_datacenter=dc1
+          nomad_datacenter=dc1
+          nomad_region=global
+          
+          # Security settings
+          enable_firewall=true
+          enable_fail2ban=true
+          enable_automatic_security_updates=true
+          
+          # HashiCorp versions - Use environment-specific versions
+          consul_version=${{ vars.CONSUL_VERSION || '1.17.0' }}
+          nomad_version=${{ vars.NOMAD_VERSION || '1.7.2' }}
+          vault_version=${{ vars.VAULT_VERSION || '1.15.4' }}
+          
+          # Environment-specific configuration
+          vault_cluster_addr=${{ secrets.VAULT_CLUSTER_ADDR || 'https://vault.service.consul:8201' }}
+          vault_api_addr=${{ secrets.VAULT_API_ADDR || 'https://vault.service.consul:8200' }}
+          EOF
+          
+          echo "Dynamic inventory created"
+
+      - name: Validate Ansible setup
+        run: |
+          cd ansible
+          echo "Testing Ansible connectivity..."
+          ansible all -i inventories/dynamic-inventory -m ping
+          
+          echo "Validating playbook syntax..."
+          ansible-playbook -i inventories/dynamic-inventory \
+            playbooks/${{ needs.validate-bootstrap.outputs.ansible-playbook }} \
+            --syntax-check
+
+      - name: Execute Ansible bootstrap playbook
+        run: |
+          cd ansible
+          echo "Starting Ansible bootstrap deployment..."
+          
+          ANSIBLE_ARGS=""
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            ANSIBLE_ARGS="--check --diff"
+            echo "🔍 Running in DRY RUN mode - no actual changes will be made"
+          fi
+          
+          # Execute the appropriate playbook based on environment
+          ansible-playbook -i inventories/dynamic-inventory \
+            playbooks/${{ needs.validate-bootstrap.outputs.ansible-playbook }} \
+            --vault-password-file=/tmp/.vault_pass \
+            -v $ANSIBLE_ARGS \
+            -e "target_environment=${{ needs.validate-bootstrap.outputs.environment }}" \
+            -e "server_configuration=${{ needs.validate-bootstrap.outputs.server-config }}" \
+            -e "force_bootstrap=${{ inputs.force_bootstrap || false }}" \
+            -e "skip_security_hardening=${{ needs.validate-bootstrap.outputs.skip-security }}"
+
+      - name: Verify bootstrap results
+        if: inputs.dry_run != true
+        run: |
+          echo "Verifying bootstrap deployment..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Service Status After Bootstrap ==="
+            for service in consul nomad; do
+              if systemctl is-active --quiet $service; then
+                echo "✓ $service is running"
+                systemctl status $service --no-pager -l
+              else
+                echo "❌ $service is not running"
+                systemctl status $service --no-pager -l || true
+              fi
+            done
+            
+            echo ""
+            echo "=== Network Ports ==="
+            netstat -tlnp | grep -E ":(4646|8500|8200)" || echo "No HashiCorp services listening"
+            
+            echo ""
+            echo "=== Disk Space After Bootstrap ==="
+            df -h /
+            
+            echo ""
+            echo "=== Log Summary ==="
+            journalctl -u consul --no-pager -l --since "10 minutes ago" | tail -5 || true
+            journalctl -u nomad --no-pager -l --since "10 minutes ago" | tail -5 || true
+          EOF
+
+      - name: Save bootstrap state
+        if: inputs.dry_run != true && inputs.force_bootstrap == true
+        run: |
+          echo "Saving bootstrap state marker..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << EOF
+            mkdir -p /opt/infrastructure/state
+            cat > /opt/infrastructure/state/bootstrap-complete << 'STATE_MARKER'
+          {
+            "phase": "ansible-bootstrap",
+            "environment": "${{ needs.validate-bootstrap.outputs.environment }}",
+            "server_config": "${{ needs.validate-bootstrap.outputs.server-config }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run": "${{ github.run_id }}",
+            "commit": "${{ github.sha }}",
+            "bootstrap": true
+          }
+          STATE_MARKER
+            
+            echo "Bootstrap state saved"
+          EOF
+
+  # Job 4: Post-bootstrap validation and reporting
+  post-bootstrap-validation:
+    runs-on: ubuntu-latest
+    needs: [validate-bootstrap, ansible-bootstrap]
+    if: always()
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Generate deployment summary
+        if: always()
+        run: |
+          echo "## Phase 1: Ansible Bootstrap Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Server: ${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.validate-bootstrap.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration: ${{ needs.validate-bootstrap.outputs.server-config }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Force Bootstrap: ${{ inputs.force_bootstrap || false }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Dry Run: ${{ inputs.dry_run || false }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.ansible-bootstrap.result }}" == "success" ]]; then
+            echo "✅ **Ansible bootstrap completed successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The server has been successfully bootstrapped with:" >> $GITHUB_STEP_SUMMARY
+            echo "- Base system configuration" >> $GITHUB_STEP_SUMMARY
+            echo "- Security hardening (if enabled)" >> $GITHUB_STEP_SUMMARY
+            echo "- HashiCorp tools installation" >> $GITHUB_STEP_SUMMARY
+            echo "- Service configuration" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Ansible bootstrap failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The bootstrap process encountered errors. Check the job logs for details." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.ansible-bootstrap.result }}" == "success" && "${{ inputs.dry_run }}" != "true" ]]; then
+            echo "1. **Phase 3**: Run Terraform configuration workflow" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Phase 6**: Deploy applications with Nomad Packs" >> $GITHUB_STEP_SUMMARY
+            echo "3. Configure monitoring and alerting" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "1. Review and fix any bootstrap errors" >> $GITHUB_STEP_SUMMARY
+            echo "2. Re-run the bootstrap workflow if necessary" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Server Access Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into the server" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+          echo "systemctl status consul nomad" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View service logs" >> $GITHUB_STEP_SUMMARY
+          echo "journalctl -u consul -f" >> $GITHUB_STEP_SUMMARY
+          echo "journalctl -u nomad -f" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          rm -f /tmp/.vault_pass ~/.ssh/id_rsa

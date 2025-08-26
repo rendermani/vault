@@ -1,0 +1,153 @@
+---
+# System Hardening Tasks for Phase 1 Bootstrap
+
+- name: Update package cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Install security packages
+  apt:
+    name: "{{ security_packages }}"
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Configure kernel security settings
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: yes
+    reload: yes
+  loop: "{{ kernel_security_settings }}"
+  notify: restart systemd-sysctl
+
+- name: Configure SSH hardening
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?{{ item.key }}"
+    line: "{{ item.key }} {{ item.value }}"
+    backup: yes
+  loop:
+    - { key: "Port", value: "{{ ssh_port }}" }
+    - { key: "PermitRootLogin", value: "{{ ssh_permit_root_login }}" }
+    - { key: "PasswordAuthentication", value: "{{ ssh_password_authentication }}" }
+    - { key: "PermitEmptyPasswords", value: "{{ ssh_permit_empty_passwords }}" }
+    - { key: "X11Forwarding", value: "{{ ssh_x11_forwarding }}" }
+    - { key: "MaxAuthTries", value: "{{ ssh_max_auth_tries }}" }
+  notify: restart ssh
+
+- name: Install and configure UFW firewall
+  block:
+    - name: Install UFW
+      apt:
+        name: ufw
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Reset UFW to defaults
+      ufw:
+        state: reset
+      
+    - name: Configure UFW default policies
+      ufw:
+        policy: "{{ item.policy }}"
+        direction: "{{ item.direction }}"
+      loop:
+        - { direction: "incoming", policy: "{{ ufw_default_incoming }}" }
+        - { direction: "outgoing", policy: "{{ ufw_default_outgoing }}" }
+        - { direction: "routed", policy: "{{ ufw_default_routed }}" }
+
+    - name: Allow basic SSH access
+      ufw:
+        rule: allow
+        port: "{{ ssh_port }}"
+        proto: tcp
+        comment: "SSH access"
+
+    - name: Allow HTTP and HTTPS (required for Phase 1)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+        comment: "Web traffic"
+      loop:
+        - "80"
+        - "443"
+
+    - name: Apply additional firewall rules from group vars
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        src: "{{ item.src | default('any') }}"
+        comment: "{{ item.comment | default('') }}"
+      loop: "{{ ufw_rules | default([]) }}"
+      when: ufw_rules is defined
+
+    - name: Apply Consul server firewall rules
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        src: "{{ item.src | default('any') }}"
+        comment: "{{ item.comment | default('') }}"
+      loop: "{{ consul_firewall_rules | default([]) }}"
+      when: 
+        - consul_firewall_rules is defined
+        - "'consul_servers' in group_names"
+
+    - name: Apply Nomad server firewall rules
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        src: "{{ item.src | default('any') }}"
+        comment: "{{ item.comment | default('') }}"
+      loop: "{{ nomad_firewall_rules | default([]) }}"
+      when: 
+        - nomad_firewall_rules is defined
+        - "'nomad_servers' in group_names or 'nomad_clients' in group_names"
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+      when: ufw_enabled | bool
+
+- name: Disable unnecessary services
+  systemd:
+    name: "{{ item }}"
+    enabled: no
+    state: stopped
+  loop: "{{ unnecessary_services }}"
+  failed_when: false  # Don't fail if service doesn't exist
+
+- name: Configure fail2ban for SSH protection
+  template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    backup: yes
+  notify: restart fail2ban
+
+- name: Enable and start fail2ban
+  systemd:
+    name: fail2ban
+    enabled: yes
+    state: started
+
+- name: Configure log rotation
+  copy:
+    content: |
+      /var/log/*.log {
+          weekly
+          rotate 4
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 644 root root
+      }
+    dest: /etc/logrotate.d/system-logs
+    mode: '0644'

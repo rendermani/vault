@@ -1,0 +1,57 @@
+---
+# Default variables for system-hardening role
+
+# UFW Firewall configuration
+ufw_enabled: true
+ufw_default_incoming: "deny"
+ufw_default_outgoing: "allow"
+ufw_default_routed: "deny"
+
+# System hardening settings
+disable_unused_filesystems: true
+disable_uncommon_protocols: true
+
+# SSH hardening (Phase 1 minimal)
+ssh_port: 22
+ssh_permit_root_login: "yes"  # Needed for bootstrap
+ssh_password_authentication: "no"
+ssh_permit_empty_passwords: "no"
+ssh_x11_forwarding: "no"
+ssh_max_auth_tries: 3
+
+# Kernel security settings
+kernel_security_settings:
+  - name: "net.ipv4.ip_forward"
+    value: 1  # Required for Docker
+  - name: "net.ipv4.conf.all.rp_filter"
+    value: 1
+  - name: "net.ipv4.conf.default.rp_filter"
+    value: 1
+  - name: "net.ipv4.icmp_echo_ignore_broadcasts"
+    value: 1
+  - name: "net.ipv4.icmp_ignore_bogus_error_responses"
+    value: 1
+  - name: "net.ipv4.conf.all.log_martians"
+    value: 1
+  - name: "kernel.exec-shield"
+    value: 1
+  - name: "kernel.randomize_va_space"
+    value: 2
+
+# Service management
+unnecessary_services:
+  - telnet
+  - rsh-server
+  - rsh
+  - ypbind
+  - ypserv
+  - tftp
+  - tftp-server
+  - talk
+  - talk-server
+
+# Package management
+security_packages:
+  - fail2ban
+  - logrotate
+  - rsyslog

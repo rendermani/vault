@@ -1,0 +1,622 @@
+name: Unified Deployment Orchestration
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging  
+          - production
+        default: 'develop'
+      deployment_phases:
+        description: 'Phases to execute'
+        required: true
+        type: choice
+        options:
+          - all
+          - bootstrap-only
+          - terraform-only
+          - nomad-packs-only
+          - infrastructure-only
+          - custom
+        default: 'all'
+      custom_phases:
+        description: 'Custom phases (if "custom" selected): phase1,phase3,phase6'
+        required: false
+        type: string
+        default: ''
+      force_bootstrap:
+        description: 'Force complete bootstrap (destructive)'
+        required: false
+        type: boolean
+        default: false
+      auto_approve:
+        description: 'Auto-approve all deployment steps'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Perform dry run across all phases'
+        required: false
+        type: boolean
+        default: false
+      continue_on_failure:
+        description: 'Continue execution even if a phase fails'
+        required: false
+        type: boolean
+        default: false
+      deployment_timeout:
+        description: 'Overall deployment timeout (minutes)'
+        required: false
+        type: number
+        default: 60
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'infrastructure/**'
+      - 'terraform/**' 
+      - 'ansible/**'
+      - 'src/nomad-packs/**'
+      - '.github/workflows/unified-deployment-orchestration.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**'
+      - 'terraform/**'
+      - 'ansible/**' 
+      - 'src/nomad-packs/**'
+      - '.github/workflows/unified-deployment-orchestration.yml'
+
+env:
+  # Global Configuration
+  REMOTE_SERVER: "cloudya.net"
+  REMOTE_USER: "root"
+  
+  # Deployment tracking
+  DEPLOYMENT_ID: "${{ github.run_id }}-${{ github.run_attempt }}"
+
+jobs:
+  # Job 1: Pre-deployment planning and validation
+  deployment-planning:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.plan.outputs.environment }}
+      phases: ${{ steps.plan.outputs.phases }}
+      strategy: ${{ steps.plan.outputs.strategy }}
+      execute-phase1: ${{ steps.plan.outputs.execute-phase1 }}
+      execute-phase3: ${{ steps.plan.outputs.execute-phase3 }}
+      execute-phase6: ${{ steps.plan.outputs.execute-phase6 }}
+      deployment-id: ${{ steps.plan.outputs.deployment-id }}
+      is-production: ${{ steps.plan.outputs.is-production }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deployment planning
+        id: plan
+        run: |
+          # Determine environment
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENV="production"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            ENV="develop"
+          else
+            ENV="develop"  # Default for PRs and other branches
+          fi
+          
+          # Determine phases to execute
+          PHASES="${{ inputs.deployment_phases || 'all' }}"
+          CUSTOM_PHASES="${{ inputs.custom_phases }}"
+          
+          # Parse phases
+          PHASE1=false
+          PHASE3=false
+          PHASE6=false
+          
+          case "$PHASES" in
+            all)
+              PHASE1=true
+              PHASE3=true
+              PHASE6=true
+              STRATEGY="full-deployment"
+              ;;
+            bootstrap-only)
+              PHASE1=true
+              STRATEGY="bootstrap-only"
+              ;;
+            terraform-only)
+              PHASE3=true
+              STRATEGY="terraform-only"
+              ;;
+            nomad-packs-only)
+              PHASE6=true
+              STRATEGY="packs-only"
+              ;;
+            infrastructure-only)
+              PHASE1=true
+              PHASE3=true
+              STRATEGY="infrastructure-only"
+              ;;
+            custom)
+              if [[ -n "$CUSTOM_PHASES" ]]; then
+                IFS=',' read -ra PHASE_ARRAY <<< "$CUSTOM_PHASES"
+                for phase in "${PHASE_ARRAY[@]}"; do
+                  case "$phase" in
+                    phase1|1)
+                      PHASE1=true
+                      ;;
+                    phase3|3)
+                      PHASE3=true
+                      ;;
+                    phase6|6)
+                      PHASE6=true
+                      ;;
+                  esac
+                done
+                STRATEGY="custom"
+              else
+                echo "❌ Custom phases specified but no custom_phases provided"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "❌ Invalid deployment phases: $PHASES"
+              exit 1
+              ;;
+          esac
+          
+          # Production detection
+          IS_PROD="false"
+          if [[ "$ENV" == "production" ]]; then
+            IS_PROD="true"
+          fi
+          
+          # Output variables
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "phases=$PHASES" >> $GITHUB_OUTPUT
+          echo "strategy=$STRATEGY" >> $GITHUB_OUTPUT
+          echo "execute-phase1=$PHASE1" >> $GITHUB_OUTPUT
+          echo "execute-phase3=$PHASE3" >> $GITHUB_OUTPUT
+          echo "execute-phase6=$PHASE6" >> $GITHUB_OUTPUT
+          echo "deployment-id=${{ env.DEPLOYMENT_ID }}" >> $GITHUB_OUTPUT
+          echo "is-production=$IS_PROD" >> $GITHUB_OUTPUT
+          
+          echo "Deployment Plan:"
+          echo "  Environment: $ENV"
+          echo "  Phases: $PHASES"
+          echo "  Strategy: $STRATEGY"
+          echo "  Execute Phase 1 (Ansible): $PHASE1"
+          echo "  Execute Phase 3 (Terraform): $PHASE3"
+          echo "  Execute Phase 6 (Nomad Packs): $PHASE6"
+          echo "  Deployment ID: ${{ env.DEPLOYMENT_ID }}"
+          echo "  Production: $IS_PROD"
+
+      - name: Validate deployment plan
+        run: |
+          echo "Validating deployment plan..."
+          
+          # Check for required files based on phases
+          if [[ "${{ steps.plan.outputs.execute-phase1 }}" == "true" ]]; then
+            if [[ ! -d "ansible" ]]; then
+              echo "❌ Phase 1 requested but ansible directory not found"
+              exit 1
+            fi
+            echo "✓ Ansible files found for Phase 1"
+          fi
+          
+          if [[ "${{ steps.plan.outputs.execute-phase3 }}" == "true" ]]; then
+            if [[ ! -d "terraform" ]]; then
+              echo "⚠️ Phase 3 requested but terraform directory not found (will be created)"
+            else
+              echo "✓ Terraform files found for Phase 3"
+            fi
+          fi
+          
+          if [[ "${{ steps.plan.outputs.execute-phase6 }}" == "true" ]]; then
+            if [[ ! -d "src/nomad-packs" ]]; then
+              echo "❌ Phase 6 requested but nomad-packs directory not found"
+              exit 1
+            fi
+            echo "✓ Nomad pack files found for Phase 6"
+          fi
+          
+          # Production safety checks
+          if [[ "${{ steps.plan.outputs.is-production }}" == "true" ]]; then
+            echo "🚨 PRODUCTION DEPLOYMENT DETECTED 🚨"
+            echo "====================================="
+            echo ""
+            echo "Environment: ${{ steps.plan.outputs.environment }}"
+            echo "Strategy: ${{ steps.plan.outputs.strategy }}"
+            echo "Force Bootstrap: ${{ inputs.force_bootstrap || false }}"
+            echo "Auto Approve: ${{ inputs.auto_approve || false }}"
+            echo "Dry Run: ${{ inputs.dry_run || false }}"
+            echo ""
+            
+            if [[ "${{ inputs.force_bootstrap }}" == "true" ]]; then
+              echo "⚠️ WARNING: Force bootstrap enabled for production"
+              echo "This will DESTROY existing production infrastructure!"
+            fi
+            
+            if [[ "${{ inputs.auto_approve }}" == "true" ]]; then
+              echo "⚠️ WARNING: Auto-approve enabled for production"
+              echo "Changes will be applied without manual review"
+            fi
+          fi
+          
+          echo "✅ Deployment plan validation completed"
+
+      - name: PR validation mode
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "🔍 PULL REQUEST VALIDATION MODE 🔍"
+          echo "==================================="
+          echo ""
+          echo "This is a pull request - running in validation mode only"
+          echo "No actual deployment will be performed"
+          echo ""
+          echo "The following would be executed in a real deployment:"
+          echo "  Environment: ${{ steps.plan.outputs.environment }}"
+          echo "  Phases: ${{ steps.plan.outputs.phases }}"
+          echo "  Strategy: ${{ steps.plan.outputs.strategy }}"
+
+  # Job 2: Phase 1 - Ansible Bootstrap (conditional)
+  phase1-ansible-bootstrap:
+    needs: deployment-planning
+    if: needs.deployment-planning.outputs.execute-phase1 == 'true' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/phase1-ansible-bootstrap.yml
+    with:
+      environment: ${{ needs.deployment-planning.outputs.environment }}
+      server_config: 'single-node'
+      force_bootstrap: ${{ inputs.force_bootstrap || false }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
+
+  # Job 3: Phase 3 - Terraform Configuration (conditional)  
+  phase3-terraform-config:
+    needs: [deployment-planning, phase1-ansible-bootstrap]
+    if: always() && needs.deployment-planning.outputs.execute-phase3 == 'true' && github.event_name != 'pull_request' && (needs.phase1-ansible-bootstrap.result == 'success' || needs.phase1-ansible-bootstrap.result == 'skipped' || inputs.continue_on_failure == true)
+    uses: ./.github/workflows/phase3-terraform-config.yml
+    with:
+      environment: ${{ needs.deployment-planning.outputs.environment }}
+      terraform_action: ${{ inputs.dry_run == true && 'plan' || 'apply' }}
+      auto_approve: ${{ inputs.auto_approve || false }}
+    secrets: inherit
+
+  # Job 4: Phase 6 - Nomad Pack Deployment (conditional)
+  phase6-nomad-pack-deploy:
+    needs: [deployment-planning, phase1-ansible-bootstrap, phase3-terraform-config]
+    if: always() && needs.deployment-planning.outputs.execute-phase6 == 'true' && github.event_name != 'pull_request' && (needs.phase3-terraform-config.result == 'success' || needs.phase3-terraform-config.result == 'skipped' || inputs.continue_on_failure == true)
+    uses: ./.github/workflows/phase6-nomad-pack-deploy.yml
+    with:
+      environment: ${{ needs.deployment-planning.outputs.environment }}
+      pack_name: 'all'
+      pack_action: ${{ inputs.dry_run == true && 'plan' || 'run' }}
+      auto_approve: ${{ inputs.auto_approve || false }}
+    secrets: inherit
+
+  # Job 5: Deployment validation and health checks
+  deployment-validation:
+    runs-on: ubuntu-latest
+    needs: [deployment-planning, phase1-ansible-bootstrap, phase3-terraform-config, phase6-nomad-pack-deploy]
+    if: always() && github.event_name != 'pull_request' && inputs.dry_run != true
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Comprehensive health check
+        run: |
+          echo "Performing comprehensive deployment health check..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Deployment Health Check ==="
+            echo "Environment: ${{ needs.deployment-planning.outputs.environment }}"
+            echo "Deployment ID: ${{ needs.deployment-planning.outputs.deployment-id }}"
+            echo "Strategy: ${{ needs.deployment-planning.outputs.strategy }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # System health
+            echo "=== System Health ==="
+            echo "Uptime: $(uptime -p)"
+            echo "Load: $(uptime | awk -F'load average:' '{print $2}')"
+            echo "Memory: $(free -h | grep Mem | awk '{print "Used: "$3" / "$2" ("$3/$2*100"%)"}')"
+            echo "Disk: $(df -h / | tail -1 | awk '{print "Used: "$3" / "$2" ("$5")"}')"
+            echo ""
+            
+            # Service health (if Phase 1 was executed)
+            if [[ "${{ needs.deployment-planning.outputs.execute-phase1 }}" == "true" ]]; then
+              echo "=== Base Services Health ==="
+              
+              # Check Consul
+              if systemctl is-active --quiet consul; then
+                echo "✅ Consul is running"
+                if curl -s http://localhost:8500/v1/status/leader > /dev/null; then
+                  echo "✅ Consul API is responding"
+                else
+                  echo "⚠️ Consul API is not responding"
+                fi
+              else
+                echo "❌ Consul is not running"
+              fi
+              
+              # Check Nomad
+              if systemctl is-active --quiet nomad; then
+                echo "✅ Nomad is running"
+                if curl -s http://localhost:4646/v1/status/leader > /dev/null; then
+                  echo "✅ Nomad API is responding"
+                  
+                  # Check node status
+                  NODE_STATUS=$(nomad node status -short | grep ready | wc -l)
+                  echo "✅ Nomad nodes ready: $NODE_STATUS"
+                else
+                  echo "⚠️ Nomad API is not responding"
+                fi
+              else
+                echo "❌ Nomad is not running"
+              fi
+              echo ""
+            fi
+            
+            # Application health (if Phase 6 was executed)
+            if [[ "${{ needs.deployment-planning.outputs.execute-phase6 }}" == "true" ]]; then
+              echo "=== Application Health ==="
+              
+              if command -v nomad &> /dev/null && nomad node status &> /dev/null; then
+                RUNNING_JOBS=$(nomad job status | grep -c running || echo "0")
+                echo "✅ Running Nomad jobs: $RUNNING_JOBS"
+                
+                # List running jobs
+                if [[ $RUNNING_JOBS -gt 0 ]]; then
+                  echo "Jobs:"
+                  nomad job status | grep running || true
+                fi
+              else
+                echo "⚠️ Cannot check Nomad job status"
+              fi
+              echo ""
+            fi
+            
+            # Network connectivity
+            echo "=== Network Connectivity ==="
+            if ping -c 1 google.com > /dev/null 2>&1; then
+              echo "✅ External connectivity: OK"
+            else
+              echo "⚠️ External connectivity: FAILED"
+            fi
+            
+            # Active network connections
+            echo "Active service ports:"
+            netstat -tlnp | grep -E ":(4646|8500|8200|8080|22)" | awk '{print $4, $7}' || echo "No relevant ports found"
+            echo ""
+            
+            echo "=== Health Check Complete ==="
+          EOF
+
+      - name: Save deployment state
+        run: |
+          echo "Saving deployment state..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << EOF
+            set -euo pipefail
+            
+            mkdir -p /opt/infrastructure/state
+            
+            cat > /opt/infrastructure/state/deployment-complete << 'STATE_MARKER'
+          {
+            "deployment_id": "${{ needs.deployment-planning.outputs.deployment-id }}",
+            "environment": "${{ needs.deployment-planning.outputs.environment }}",
+            "strategy": "${{ needs.deployment-planning.outputs.strategy }}",
+            "phases": {
+              "phase1_ansible": "${{ needs.deployment-planning.outputs.execute-phase1 }}",
+              "phase3_terraform": "${{ needs.deployment-planning.outputs.execute-phase3 }}",
+              "phase6_nomad_packs": "${{ needs.deployment-planning.outputs.execute-phase6 }}"
+            },
+            "results": {
+              "phase1_result": "${{ needs.phase1-ansible-bootstrap.result }}",
+              "phase3_result": "${{ needs.phase3-terraform-config.result }}",
+              "phase6_result": "${{ needs.phase6-nomad-pack-deploy.result }}"
+            },
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run": "${{ github.run_id }}",
+            "commit": "${{ github.sha }}",
+            "force_bootstrap": "${{ inputs.force_bootstrap || false }}",
+            "auto_approve": "${{ inputs.auto_approve || false }}"
+          }
+          STATE_MARKER
+            
+            echo "Deployment state saved successfully"
+          EOF
+
+  # Job 6: Final reporting and summary
+  deployment-summary:
+    runs-on: ubuntu-latest
+    needs: [deployment-planning, phase1-ansible-bootstrap, phase3-terraform-config, phase6-nomad-pack-deploy, deployment-validation]
+    if: always()
+    steps:
+      - name: Calculate deployment results
+        id: results
+        run: |
+          # Determine overall success
+          OVERALL_SUCCESS="true"
+          EXECUTED_PHASES=0
+          SUCCESSFUL_PHASES=0
+          FAILED_PHASES=0
+          SKIPPED_PHASES=0
+          
+          # Check Phase 1
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase1 }}" == "true" ]]; then
+            EXECUTED_PHASES=$((EXECUTED_PHASES + 1))
+            if [[ "${{ needs.phase1-ansible-bootstrap.result }}" == "success" ]]; then
+              SUCCESSFUL_PHASES=$((SUCCESSFUL_PHASES + 1))
+            elif [[ "${{ needs.phase1-ansible-bootstrap.result }}" == "failure" ]]; then
+              FAILED_PHASES=$((FAILED_PHASES + 1))
+              OVERALL_SUCCESS="false"
+            else
+              SKIPPED_PHASES=$((SKIPPED_PHASES + 1))
+            fi
+          fi
+          
+          # Check Phase 3
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase3 }}" == "true" ]]; then
+            EXECUTED_PHASES=$((EXECUTED_PHASES + 1))
+            if [[ "${{ needs.phase3-terraform-config.result }}" == "success" ]]; then
+              SUCCESSFUL_PHASES=$((SUCCESSFUL_PHASES + 1))
+            elif [[ "${{ needs.phase3-terraform-config.result }}" == "failure" ]]; then
+              FAILED_PHASES=$((FAILED_PHASES + 1))
+              OVERALL_SUCCESS="false"
+            else
+              SKIPPED_PHASES=$((SKIPPED_PHASES + 1))
+            fi
+          fi
+          
+          # Check Phase 6
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase6 }}" == "true" ]]; then
+            EXECUTED_PHASES=$((EXECUTED_PHASES + 1))
+            if [[ "${{ needs.phase6-nomad-pack-deploy.result }}" == "success" ]]; then
+              SUCCESSFUL_PHASES=$((SUCCESSFUL_PHASES + 1))
+            elif [[ "${{ needs.phase6-nomad-pack-deploy.result }}" == "failure" ]]; then
+              FAILED_PHASES=$((FAILED_PHASES + 1))
+              OVERALL_SUCCESS="false"
+            else
+              SKIPPED_PHASES=$((SKIPPED_PHASES + 1))
+            fi
+          fi
+          
+          echo "overall-success=$OVERALL_SUCCESS" >> $GITHUB_OUTPUT
+          echo "executed-phases=$EXECUTED_PHASES" >> $GITHUB_OUTPUT
+          echo "successful-phases=$SUCCESSFUL_PHASES" >> $GITHUB_OUTPUT
+          echo "failed-phases=$FAILED_PHASES" >> $GITHUB_OUTPUT
+          echo "skipped-phases=$SKIPPED_PHASES" >> $GITHUB_OUTPUT
+
+      - name: Generate comprehensive deployment summary
+        run: |
+          echo "# 🚀 Unified Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployment Overview" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ needs.deployment-planning.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Strategy**: ${{ needs.deployment-planning.outputs.strategy }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment ID**: ${{ needs.deployment-planning.outputs.deployment-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server**: ${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Overall status
+          if [[ "${{ steps.results.outputs.overall-success }}" == "true" ]]; then
+            echo "## ✅ Deployment Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All requested phases completed successfully!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Deployment Status: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "One or more phases failed. Check individual phase results below." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Phase Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Phases**: ${{ steps.results.outputs.executed-phases }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Successful**: ${{ steps.results.outputs.successful-phases }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Failed**: ${{ steps.results.outputs.failed-phases }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Skipped**: ${{ steps.results.outputs.skipped-phases }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Individual phase results
+          echo "### Phase Details" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase1 }}" == "true" ]]; then
+            case "${{ needs.phase1-ansible-bootstrap.result }}" in
+              success)
+                echo "- **Phase 1 (Ansible Bootstrap)**: ✅ Success" >> $GITHUB_STEP_SUMMARY
+                ;;
+              failure)
+                echo "- **Phase 1 (Ansible Bootstrap)**: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+                ;;
+              *)
+                echo "- **Phase 1 (Ansible Bootstrap)**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+                ;;
+            esac
+          fi
+          
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase3 }}" == "true" ]]; then
+            case "${{ needs.phase3-terraform-config.result }}" in
+              success)
+                echo "- **Phase 3 (Terraform Config)**: ✅ Success" >> $GITHUB_STEP_SUMMARY
+                ;;
+              failure)
+                echo "- **Phase 3 (Terraform Config)**: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+                ;;
+              *)
+                echo "- **Phase 3 (Terraform Config)**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+                ;;
+            esac
+          fi
+          
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase6 }}" == "true" ]]; then
+            case "${{ needs.phase6-nomad-pack-deploy.result }}" in
+              success)
+                echo "- **Phase 6 (Nomad Packs)**: ✅ Success" >> $GITHUB_STEP_SUMMARY
+                ;;
+              failure)
+                echo "- **Phase 6 (Nomad Packs)**: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+                ;;
+              *)
+                echo "- **Phase 6 (Nomad Packs)**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+                ;;
+            esac
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Next steps
+          if [[ "${{ steps.results.outputs.overall-success }}" == "true" && "${{ inputs.dry_run }}" != "true" ]]; then
+            echo "## 🎉 Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "1. **Verify services** are running correctly" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Run health checks** on deployed applications" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Configure monitoring** and alerting" >> $GITHUB_STEP_SUMMARY
+            echo "4. **Update documentation** with any changes" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            echo "## 🔍 Dry Run Completed" >> $GITHUB_STEP_SUMMARY
+            echo "This was a dry run - no actual changes were made." >> $GITHUB_STEP_SUMMARY
+            echo "Review the results and run again without dry_run to deploy." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## 🔧 Troubleshooting" >> $GITHUB_STEP_SUMMARY
+            echo "1. **Check failed phase logs** for detailed error information" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Verify server connectivity** and prerequisites" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Fix identified issues** and re-run the deployment" >> $GITHUB_STEP_SUMMARY
+            echo "4. **Contact the platform team** if issues persist" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔧 Management Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into the server" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check deployment state" >> $GITHUB_STEP_SUMMARY
+          echo "cat /opt/infrastructure/state/deployment-complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+          echo "systemctl status consul nomad" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check Nomad jobs" >> $GITHUB_STEP_SUMMARY
+          echo "nomad job status" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set workflow conclusion
+        if: steps.results.outputs.overall-success != 'true'
+        run: |
+          echo "::error::Unified deployment failed - check individual phase results"
+          exit 1

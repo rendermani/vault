@@ -1,0 +1,1096 @@
+name: Comprehensive Monitoring & Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      validation_type:
+        description: 'Type of validation to perform'
+        required: true
+        type: choice
+        options:
+          - health-check
+          - full-validation
+          - security-audit
+          - performance-test
+          - disaster-recovery-test
+        default: 'health-check'
+      monitoring_duration:
+        description: 'Monitoring duration (minutes)'
+        required: false
+        type: number
+        default: 30
+      include_metrics:
+        description: 'Include detailed metrics collection'
+        required: false
+        type: boolean
+        default: true
+      alert_on_issues:
+        description: 'Create GitHub issues for discovered problems'
+        required: false
+        type: boolean
+        default: false
+      generate_report:
+        description: 'Generate comprehensive validation report'
+        required: false
+        type: boolean
+        default: true
+  schedule:
+    # Run health checks every 6 hours
+    - cron: '0 */6 * * *'
+    # Run full validation daily at 3 AM UTC
+    - cron: '0 3 * * *'
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      validation_type:
+        required: false
+        type: string
+        default: 'health-check'
+
+env:
+  REMOTE_SERVER: "cloudya.net"
+  REMOTE_USER: "root"
+  MONITORING_DIR: "/opt/monitoring"
+  REPORT_DIR: "/opt/reports"
+
+jobs:
+  # Job 1: Monitoring setup and preparation
+  monitoring-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.setup.outputs.environment }}
+      validation-type: ${{ steps.setup.outputs.validation-type }}
+      monitoring-duration: ${{ steps.setup.outputs.monitoring-duration }}
+      test-suite: ${{ steps.setup.outputs.test-suite }}
+    steps:
+      - name: Setup monitoring configuration
+        id: setup
+        run: |
+          # Determine environment
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ inputs.environment }}"
+            VALIDATION_TYPE="${{ inputs.validation_type }}"
+            DURATION="${{ inputs.monitoring_duration }}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            # Scheduled runs alternate between health checks and full validation
+            HOUR=$(date +%H)
+            if [[ $((HOUR % 12)) -eq 3 ]]; then
+              ENV="production"
+              VALIDATION_TYPE="full-validation"
+              DURATION="60"
+            else
+              ENV="production"
+              VALIDATION_TYPE="health-check" 
+              DURATION="15"
+            fi
+          elif [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            ENV="${{ inputs.environment }}"
+            VALIDATION_TYPE="${{ inputs.validation_type }}"
+            DURATION="30"
+          else
+            ENV="develop"
+            VALIDATION_TYPE="health-check"
+            DURATION="15"
+          fi
+          
+          # Determine test suite based on validation type
+          case "$VALIDATION_TYPE" in
+            health-check)
+              TEST_SUITE="basic"
+              ;;
+            full-validation)
+              TEST_SUITE="comprehensive"
+              ;;
+            security-audit)
+              TEST_SUITE="security"
+              ;;
+            performance-test)
+              TEST_SUITE="performance"
+              ;;
+            disaster-recovery-test)
+              TEST_SUITE="dr"
+              ;;
+            *)
+              TEST_SUITE="basic"
+              ;;
+          esac
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "validation-type=$VALIDATION_TYPE" >> $GITHUB_OUTPUT
+          echo "monitoring-duration=$DURATION" >> $GITHUB_OUTPUT
+          echo "test-suite=$TEST_SUITE" >> $GITHUB_OUTPUT
+          
+          echo "Monitoring Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Validation Type: $VALIDATION_TYPE"
+          echo "  Duration: $DURATION minutes"
+          echo "  Test Suite: $TEST_SUITE"
+
+      - name: Production monitoring safety check
+        if: steps.setup.outputs.environment == 'production' && (inputs.validation_type == 'disaster-recovery-test' || inputs.validation_type == 'performance-test')
+        run: |
+          echo "🚨 PRODUCTION INTENSIVE TESTING WARNING 🚨"
+          echo "============================================="
+          echo ""
+          echo "You are about to run intensive testing on production!"
+          echo "Test Type: ${{ steps.setup.outputs.validation-type }}"
+          echo ""
+          
+          case "${{ steps.setup.outputs.validation-type }}" in
+            disaster-recovery-test)
+              echo "⚠️ Disaster Recovery Test may cause temporary service disruption"
+              echo "This test validates backup/restore procedures"
+              ;;
+            performance-test)
+              echo "⚠️ Performance Test may impact system resources"
+              echo "This test generates synthetic load"
+              ;;
+          esac
+          
+          echo ""
+          echo "Ensure this is approved and scheduled appropriately!"
+
+  # Job 2: Basic health monitoring
+  health-monitoring:
+    runs-on: ubuntu-latest
+    needs: monitoring-setup
+    if: needs.monitoring-setup.outputs.test-suite == 'basic' || needs.monitoring-setup.outputs.test-suite == 'comprehensive'
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: System health monitoring
+        run: |
+          echo "Starting system health monitoring..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            # Create monitoring directory
+            mkdir -p ${{ env.MONITORING_DIR }}/health-check
+            cd ${{ env.MONITORING_DIR }}/health-check
+            
+            REPORT_FILE="health-report-$(date +%Y%m%d-%H%M%S).json"
+            
+            echo "=== System Health Monitoring ==="
+            echo "Environment: ${{ needs.monitoring-setup.outputs.environment }}"
+            echo "Start Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "Report File: $REPORT_FILE"
+            echo ""
+            
+            # Initialize report
+            cat > "$REPORT_FILE" << 'HEALTH_START'
+          {
+            "environment": "${{ needs.monitoring-setup.outputs.environment }}",
+            "monitoring_type": "health-check",
+            "start_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "server": "${{ env.REMOTE_SERVER }}",
+            "checks": {}
+          }
+          HEALTH_START
+            
+            # System resource checks
+            echo "--- System Resources ---"
+            
+            # CPU check
+            CPU_LOAD=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | tr -d ',')
+            CPU_CORES=$(nproc)
+            CPU_USAGE_PERCENT=$(echo "scale=2; ($CPU_LOAD / $CPU_CORES) * 100" | bc -l 2>/dev/null || echo "0")
+            
+            echo "CPU Load: $CPU_LOAD (${CPU_USAGE_PERCENT}%)"
+            
+            # Memory check  
+            MEMORY_INFO=$(free -m)
+            TOTAL_MEM=$(echo "$MEMORY_INFO" | awk '/^Mem:/{print $2}')
+            USED_MEM=$(echo "$MEMORY_INFO" | awk '/^Mem:/{print $3}')
+            MEM_USAGE_PERCENT=$(echo "scale=2; ($USED_MEM / $TOTAL_MEM) * 100" | bc -l 2>/dev/null || echo "0")
+            
+            echo "Memory: ${USED_MEM}MB / ${TOTAL_MEM}MB (${MEM_USAGE_PERCENT}%)"
+            
+            # Disk check
+            DISK_INFO=$(df -h / | tail -1)
+            DISK_USAGE_PERCENT=$(echo "$DISK_INFO" | awk '{print $5}' | tr -d '%')
+            DISK_AVAILABLE=$(echo "$DISK_INFO" | awk '{print $4}')
+            
+            echo "Disk Usage: ${DISK_USAGE_PERCENT}% (${DISK_AVAILABLE} available)"
+            
+            # Service checks
+            echo ""
+            echo "--- Service Health ---"
+            
+            CONSUL_STATUS="unknown"
+            NOMAD_STATUS="unknown"
+            
+            # Check Consul
+            if systemctl is-active --quiet consul; then
+              if curl -s http://localhost:8500/v1/status/leader > /dev/null 2>&1; then
+                CONSUL_STATUS="healthy"
+                echo "✅ Consul: Healthy"
+              else
+                CONSUL_STATUS="unhealthy"
+                echo "❌ Consul: Service running but API not responding"
+              fi
+            else
+              CONSUL_STATUS="stopped"
+              echo "❌ Consul: Service stopped"
+            fi
+            
+            # Check Nomad
+            if systemctl is-active --quiet nomad; then
+              if curl -s http://localhost:4646/v1/status/leader > /dev/null 2>&1; then
+                NOMAD_STATUS="healthy"
+                echo "✅ Nomad: Healthy"
+                
+                # Check Nomad jobs
+                RUNNING_JOBS=$(nomad job status | grep -c running 2>/dev/null || echo "0")
+                TOTAL_JOBS=$(nomad job status | tail -n +2 | wc -l 2>/dev/null || echo "0")
+                echo "  Running Jobs: $RUNNING_JOBS / $TOTAL_JOBS"
+                
+              else
+                NOMAD_STATUS="unhealthy"
+                echo "❌ Nomad: Service running but API not responding"
+              fi
+            else
+              NOMAD_STATUS="stopped"
+              echo "❌ Nomad: Service stopped"
+            fi
+            
+            # Network connectivity check
+            echo ""
+            echo "--- Network Connectivity ---"
+            
+            INTERNET_STATUS="unknown"
+            if ping -c 1 -W 5 google.com > /dev/null 2>&1; then
+              INTERNET_STATUS="connected"
+              echo "✅ Internet: Connected"
+            else
+              INTERNET_STATUS="disconnected"
+              echo "❌ Internet: Connection failed"
+            fi
+            
+            # Port availability check
+            echo ""
+            echo "--- Port Availability ---"
+            
+            CRITICAL_PORTS="22 8500 4646"
+            for port in $CRITICAL_PORTS; do
+              if netstat -tlnp | grep ":$port " > /dev/null 2>&1; then
+                echo "✅ Port $port: Listening"
+              else
+                echo "❌ Port $port: Not listening"
+              fi
+            done
+            
+            # Update report with results
+            jq --arg cpu_usage "$CPU_USAGE_PERCENT" \
+               --arg mem_usage "$MEM_USAGE_PERCENT" \
+               --arg disk_usage "$DISK_USAGE_PERCENT" \
+               --arg consul_status "$CONSUL_STATUS" \
+               --arg nomad_status "$NOMAD_STATUS" \
+               --arg internet_status "$INTERNET_STATUS" \
+               --arg end_time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+               '.checks = {
+                 "system_resources": {
+                   "cpu_usage_percent": ($cpu_usage | tonumber),
+                   "memory_usage_percent": ($mem_usage | tonumber),
+                   "disk_usage_percent": ($disk_usage | tonumber)
+                 },
+                 "services": {
+                   "consul": $consul_status,
+                   "nomad": $nomad_status
+                 },
+                 "network": {
+                   "internet": $internet_status
+                 }
+               } | .end_time = $end_time' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+            
+            echo ""
+            echo "=== Health Check Complete ==="
+            echo "Report saved: $REPORT_FILE"
+            
+            # Determine overall health
+            OVERALL_HEALTH="healthy"
+            
+            # Check critical thresholds
+            if (( $(echo "$CPU_USAGE_PERCENT > 90" | bc -l 2>/dev/null || echo 0) )); then
+              echo "⚠️ HIGH CPU USAGE: ${CPU_USAGE_PERCENT}%"
+              OVERALL_HEALTH="warning"
+            fi
+            
+            if (( $(echo "$MEM_USAGE_PERCENT > 85" | bc -l 2>/dev/null || echo 0) )); then
+              echo "⚠️ HIGH MEMORY USAGE: ${MEM_USAGE_PERCENT}%"
+              OVERALL_HEALTH="warning"
+            fi
+            
+            if (( DISK_USAGE_PERCENT > 80 )); then
+              echo "⚠️ HIGH DISK USAGE: ${DISK_USAGE_PERCENT}%"
+              OVERALL_HEALTH="warning"
+            fi
+            
+            if [[ "$CONSUL_STATUS" != "healthy" || "$NOMAD_STATUS" != "healthy" ]]; then
+              echo "❌ CRITICAL SERVICES UNHEALTHY"
+              OVERALL_HEALTH="critical"
+            fi
+            
+            # Update report with overall health
+            jq --arg overall "$OVERALL_HEALTH" '.overall_health = $overall' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+            
+            echo "Overall Health: $OVERALL_HEALTH"
+            
+            # Exit with appropriate code
+            case "$OVERALL_HEALTH" in
+              healthy)
+                exit 0
+                ;;
+              warning)
+                echo "::warning::System health warnings detected"
+                exit 0
+                ;;
+              critical)
+                echo "::error::Critical system health issues detected"
+                exit 1
+                ;;
+            esac
+          EOF
+
+      - name: Service-specific monitoring
+        if: needs.monitoring-setup.outputs.test-suite == 'comprehensive'
+        run: |
+          echo "Performing service-specific monitoring..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            cd ${{ env.MONITORING_DIR }}/health-check
+            
+            echo "=== Service-Specific Monitoring ==="
+            
+            # Consul detailed checks
+            if systemctl is-active --quiet consul; then
+              echo "--- Consul Details ---"
+              
+              # Member status
+              consul members | head -10
+              
+              # Key-value store test
+              TEST_KEY="health-check/$(date +%s)"
+              if consul kv put "$TEST_KEY" "test-value" > /dev/null 2>&1; then
+                if [[ "$(consul kv get "$TEST_KEY" 2>/dev/null)" == "test-value" ]]; then
+                  echo "✅ Consul KV store: Working"
+                  consul kv delete "$TEST_KEY" > /dev/null 2>&1
+                else
+                  echo "❌ Consul KV store: Read failed"
+                fi
+              else
+                echo "❌ Consul KV store: Write failed"
+              fi
+            fi
+            
+            # Nomad detailed checks
+            if systemctl is-active --quiet nomad && command -v nomad &> /dev/null; then
+              echo ""
+              echo "--- Nomad Details ---"
+              
+              # Node status
+              nomad node status | head -10
+              
+              # Allocation status
+              TOTAL_ALLOCS=$(nomad node status -verbose | grep -o '[0-9]* allocs' | head -1 | awk '{print $1}' || echo "0")
+              echo "Total allocations: $TOTAL_ALLOCS"
+              
+              # Resource utilization
+              nomad node status -verbose | grep -E "(CPU|Memory|Disk)" | head -5 || true
+            fi
+            
+            echo ""
+            echo "=== Service-Specific Monitoring Complete ==="
+          EOF
+
+  # Job 3: Security monitoring
+  security-monitoring:
+    runs-on: ubuntu-latest
+    needs: monitoring-setup
+    if: needs.monitoring-setup.outputs.test-suite == 'security' || needs.monitoring-setup.outputs.test-suite == 'comprehensive'
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Security audit
+        run: |
+          echo "Performing security audit..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            mkdir -p ${{ env.MONITORING_DIR }}/security-audit
+            cd ${{ env.MONITORING_DIR }}/security-audit
+            
+            SECURITY_REPORT="security-audit-$(date +%Y%m%d-%H%M%S).json"
+            
+            echo "=== Security Audit ==="
+            echo "Environment: ${{ needs.monitoring-setup.outputs.environment }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # Initialize security report
+            cat > "$SECURITY_REPORT" << 'SECURITY_START'
+          {
+            "environment": "${{ needs.monitoring-setup.outputs.environment }}",
+            "audit_type": "security",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "server": "${{ env.REMOTE_SERVER }}",
+            "findings": {}
+          }
+          SECURITY_START
+            
+            # SSH configuration check
+            echo "--- SSH Security ---"
+            SSH_ISSUES=0
+            
+            if grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config; then
+              echo "❌ Password authentication enabled"
+              SSH_ISSUES=$((SSH_ISSUES + 1))
+            else
+              echo "✅ Password authentication disabled"
+            fi
+            
+            if grep -q "^PermitRootLogin yes" /etc/ssh/sshd_config; then
+              echo "⚠️ Root login fully permitted"
+              SSH_ISSUES=$((SSH_ISSUES + 1))
+            else
+              echo "✅ Root login restricted"
+            fi
+            
+            # Firewall status
+            echo ""
+            echo "--- Firewall Status ---"
+            FIREWALL_STATUS="unknown"
+            
+            if systemctl is-active --quiet ufw; then
+              FIREWALL_STATUS="ufw-active"
+              echo "✅ UFW firewall active"
+              ufw status | head -10
+            elif systemctl is-active --quiet iptables; then
+              FIREWALL_STATUS="iptables-active"
+              echo "✅ iptables active"
+            elif systemctl is-active --quiet firewalld; then
+              FIREWALL_STATUS="firewalld-active"  
+              echo "✅ firewalld active"
+            else
+              FIREWALL_STATUS="none"
+              echo "⚠️ No active firewall detected"
+            fi
+            
+            # Check for unauthorized processes
+            echo ""
+            echo "--- Process Security ---"
+            SUSPICIOUS_PROCESSES=0
+            
+            # Check for common mining/malware processes
+            SUSPICIOUS_NAMES="monero bitcoin cgminer minerd xmrig"
+            for process in $SUSPICIOUS_NAMES; do
+              if pgrep -f "$process" > /dev/null 2>&1; then
+                echo "⚠️ Suspicious process found: $process"
+                SUSPICIOUS_PROCESSES=$((SUSPICIOUS_PROCESSES + 1))
+              fi
+            done
+            
+            if [[ $SUSPICIOUS_PROCESSES -eq 0 ]]; then
+              echo "✅ No suspicious processes detected"
+            fi
+            
+            # Check file permissions
+            echo ""
+            echo "--- Critical File Permissions ---"
+            PERMISSION_ISSUES=0
+            
+            # Check SSH key permissions
+            if [[ -f "/root/.ssh/authorized_keys" ]]; then
+              PERMS=$(stat -c "%a" /root/.ssh/authorized_keys)
+              if [[ "$PERMS" == "600" || "$PERMS" == "400" ]]; then
+                echo "✅ SSH authorized_keys permissions correct ($PERMS)"
+              else
+                echo "❌ SSH authorized_keys permissions incorrect ($PERMS)"
+                PERMISSION_ISSUES=$((PERMISSION_ISSUES + 1))
+              fi
+            fi
+            
+            # Check service configurations
+            echo ""
+            echo "--- Service Security ---"
+            SERVICE_ISSUES=0
+            
+            # Check if services are binding to all interfaces unnecessarily
+            RISKY_BINDS=$(netstat -tlnp | grep "0.0.0.0:" | grep -v ":22 " | wc -l)
+            if [[ $RISKY_BINDS -gt 0 ]]; then
+              echo "⚠️ Services binding to all interfaces: $RISKY_BINDS"
+              netstat -tlnp | grep "0.0.0.0:" | grep -v ":22 " | head -5
+              SERVICE_ISSUES=$((SERVICE_ISSUES + 1))
+            else
+              echo "✅ Services not excessively exposed"
+            fi
+            
+            # Update security report
+            jq --argjson ssh_issues $SSH_ISSUES \
+               --arg firewall_status "$FIREWALL_STATUS" \
+               --argjson suspicious_processes $SUSPICIOUS_PROCESSES \
+               --argjson permission_issues $PERMISSION_ISSUES \
+               --argjson service_issues $SERVICE_ISSUES \
+               '.findings = {
+                 "ssh": {"issues": $ssh_issues},
+                 "firewall": {"status": $firewall_status},
+                 "processes": {"suspicious_count": $suspicious_processes},
+                 "permissions": {"issues": $permission_issues},
+                 "services": {"issues": $service_issues}
+               }' "$SECURITY_REPORT" > "$SECURITY_REPORT.tmp" && mv "$SECURITY_REPORT.tmp" "$SECURITY_REPORT"
+            
+            # Calculate security score
+            TOTAL_ISSUES=$((SSH_ISSUES + SUSPICIOUS_PROCESSES + PERMISSION_ISSUES + SERVICE_ISSUES))
+            
+            if [[ "$FIREWALL_STATUS" == "none" ]]; then
+              TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
+            fi
+            
+            SECURITY_LEVEL="good"
+            if [[ $TOTAL_ISSUES -gt 5 ]]; then
+              SECURITY_LEVEL="critical"
+            elif [[ $TOTAL_ISSUES -gt 2 ]]; then
+              SECURITY_LEVEL="warning"
+            fi
+            
+            jq --arg level "$SECURITY_LEVEL" --argjson total $TOTAL_ISSUES \
+               '.security_level = $level | .total_issues = $total' \
+               "$SECURITY_REPORT" > "$SECURITY_REPORT.tmp" && mv "$SECURITY_REPORT.tmp" "$SECURITY_REPORT"
+            
+            echo ""
+            echo "=== Security Audit Summary ==="
+            echo "Total Issues: $TOTAL_ISSUES"
+            echo "Security Level: $SECURITY_LEVEL"
+            echo "Report: $SECURITY_REPORT"
+            
+            case "$SECURITY_LEVEL" in
+              critical)
+                echo "::error::Critical security issues found"
+                exit 1
+                ;;
+              warning)
+                echo "::warning::Security warnings detected"
+                ;;
+              *)
+                echo "✅ Security audit passed"
+                ;;
+            esac
+          EOF
+
+  # Job 4: Performance monitoring
+  performance-monitoring:
+    runs-on: ubuntu-latest
+    needs: monitoring-setup
+    if: needs.monitoring-setup.outputs.test-suite == 'performance' || needs.monitoring-setup.outputs.test-suite == 'comprehensive'
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Performance testing
+        run: |
+          echo "Starting performance testing..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            mkdir -p ${{ env.MONITORING_DIR }}/performance-test
+            cd ${{ env.MONITORING_DIR }}/performance-test
+            
+            PERF_REPORT="performance-test-$(date +%Y%m%d-%H%M%S).json"
+            
+            echo "=== Performance Testing ==="
+            echo "Environment: ${{ needs.monitoring-setup.outputs.environment }}"
+            echo "Duration: ${{ needs.monitoring-setup.outputs.monitoring-duration }} minutes"
+            echo ""
+            
+            # Initialize performance report
+            cat > "$PERF_REPORT" << 'PERF_START'
+          {
+            "environment": "${{ needs.monitoring-setup.outputs.environment }}",
+            "test_type": "performance",
+            "start_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "duration_minutes": ${{ needs.monitoring-setup.outputs.monitoring-duration }},
+            "server": "${{ env.REMOTE_SERVER }}",
+            "tests": {}
+          }
+          PERF_START
+            
+            # Baseline system metrics
+            echo "--- Baseline Metrics ---"
+            BASELINE_LOAD=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | tr -d ',')
+            BASELINE_MEM=$(free -m | awk '/^Mem:/{printf "%.2f", $3/$2*100}')
+            
+            echo "Baseline CPU Load: $BASELINE_LOAD"
+            echo "Baseline Memory: ${BASELINE_MEM}%"
+            
+            # API response time tests
+            echo ""
+            echo "--- API Response Time Tests ---"
+            
+            CONSUL_RESPONSE_TIME="0"
+            NOMAD_RESPONSE_TIME="0"
+            
+            if systemctl is-active --quiet consul; then
+              echo "Testing Consul API..."
+              CONSUL_RESPONSE_TIME=$(curl -w "%{time_total}" -s -o /dev/null http://localhost:8500/v1/status/leader 2>/dev/null || echo "0")
+              echo "Consul response time: ${CONSUL_RESPONSE_TIME}s"
+            fi
+            
+            if systemctl is-active --quiet nomad; then
+              echo "Testing Nomad API..."
+              NOMAD_RESPONSE_TIME=$(curl -w "%{time_total}" -s -o /dev/null http://localhost:4646/v1/status/leader 2>/dev/null || echo "0")
+              echo "Nomad response time: ${NOMAD_RESPONSE_TIME}s"
+            fi
+            
+            # Disk I/O test
+            echo ""
+            echo "--- Disk I/O Test ---"
+            echo "Running disk I/O test (this may take a moment)..."
+            
+            DISK_WRITE_SPEED="0"
+            DISK_READ_SPEED="0"
+            
+            if command -v dd > /dev/null 2>&1; then
+              # Write test
+              WRITE_RESULT=$(dd if=/dev/zero of=/tmp/iotest bs=1M count=100 conv=sync 2>&1 | grep -o '[0-9.]\+ MB/s' | tail -1 || echo "0 MB/s")
+              DISK_WRITE_SPEED=$(echo "$WRITE_RESULT" | grep -o '[0-9.]\+' || echo "0")
+              
+              # Read test
+              READ_RESULT=$(dd if=/tmp/iotest of=/dev/null bs=1M 2>&1 | grep -o '[0-9.]\+ MB/s' | tail -1 || echo "0 MB/s")
+              DISK_READ_SPEED=$(echo "$READ_RESULT" | grep -o '[0-9.]\+' || echo "0")
+              
+              # Cleanup
+              rm -f /tmp/iotest
+              
+              echo "Disk Write Speed: ${DISK_WRITE_SPEED} MB/s"
+              echo "Disk Read Speed: ${DISK_READ_SPEED} MB/s"
+            fi
+            
+            # Network connectivity test
+            echo ""
+            echo "--- Network Performance ---"
+            
+            PING_TIME="0"
+            if ping -c 5 google.com > /dev/null 2>&1; then
+              PING_TIME=$(ping -c 5 google.com 2>/dev/null | tail -1 | awk -F'/' '{print $4}' || echo "0")
+              echo "Average ping time: ${PING_TIME}ms"
+            fi
+            
+            # Memory performance test
+            echo ""
+            echo "--- Memory Performance ---"
+            
+            MEMORY_BANDWIDTH="0"
+            if command -v dd > /dev/null 2>&1; then
+              # Simple memory bandwidth test
+              MEM_TEST_RESULT=$(dd if=/dev/zero of=/dev/null bs=1M count=1000 2>&1 | grep -o '[0-9.]\+ MB/s' | tail -1 || echo "0 MB/s")
+              MEMORY_BANDWIDTH=$(echo "$MEM_TEST_RESULT" | grep -o '[0-9.]\+' || echo "0")
+              echo "Memory bandwidth: ${MEMORY_BANDWIDTH} MB/s"
+            fi
+            
+            # Update performance report
+            jq --arg baseline_load "$BASELINE_LOAD" \
+               --arg baseline_mem "$BASELINE_MEM" \
+               --arg consul_time "$CONSUL_RESPONSE_TIME" \
+               --arg nomad_time "$NOMAD_RESPONSE_TIME" \
+               --arg disk_write "$DISK_WRITE_SPEED" \
+               --arg disk_read "$DISK_READ_SPEED" \
+               --arg ping_time "$PING_TIME" \
+               --arg memory_bw "$MEMORY_BANDWIDTH" \
+               --arg end_time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+               '.tests = {
+                 "baseline": {
+                   "cpu_load": ($baseline_load | tonumber),
+                   "memory_percent": ($baseline_mem | tonumber)
+                 },
+                 "api_response": {
+                   "consul_seconds": ($consul_time | tonumber),
+                   "nomad_seconds": ($nomad_time | tonumber)
+                 },
+                 "disk_io": {
+                   "write_mbps": ($disk_write | tonumber),
+                   "read_mbps": ($disk_read | tonumber)
+                 },
+                 "network": {
+                   "ping_ms": ($ping_time | tonumber)
+                 },
+                 "memory": {
+                   "bandwidth_mbps": ($memory_bw | tonumber)
+                 }
+               } | .end_time = $end_time' "$PERF_REPORT" > "$PERF_REPORT.tmp" && mv "$PERF_REPORT.tmp" "$PERF_REPORT"
+            
+            # Performance evaluation
+            PERFORMANCE_ISSUES=0
+            
+            # Check API response times
+            if (( $(echo "$CONSUL_RESPONSE_TIME > 1.0" | bc -l 2>/dev/null || echo 0) )); then
+              echo "⚠️ Consul API slow: ${CONSUL_RESPONSE_TIME}s"
+              PERFORMANCE_ISSUES=$((PERFORMANCE_ISSUES + 1))
+            fi
+            
+            if (( $(echo "$NOMAD_RESPONSE_TIME > 1.0" | bc -l 2>/dev/null || echo 0) )); then
+              echo "⚠️ Nomad API slow: ${NOMAD_RESPONSE_TIME}s"
+              PERFORMANCE_ISSUES=$((PERFORMANCE_ISSUES + 1))
+            fi
+            
+            # Check disk performance
+            if (( $(echo "$DISK_WRITE_SPEED < 50" | bc -l 2>/dev/null || echo 0) )); then
+              echo "⚠️ Slow disk write speed: ${DISK_WRITE_SPEED} MB/s"
+              PERFORMANCE_ISSUES=$((PERFORMANCE_ISSUES + 1))
+            fi
+            
+            PERFORMANCE_LEVEL="good"
+            if [[ $PERFORMANCE_ISSUES -gt 2 ]]; then
+              PERFORMANCE_LEVEL="poor"
+            elif [[ $PERFORMANCE_ISSUES -gt 0 ]]; then
+              PERFORMANCE_LEVEL="warning"
+            fi
+            
+            jq --arg level "$PERFORMANCE_LEVEL" --argjson issues $PERFORMANCE_ISSUES \
+               '.performance_level = $level | .issues_found = $issues' \
+               "$PERF_REPORT" > "$PERF_REPORT.tmp" && mv "$PERF_REPORT.tmp" "$PERF_REPORT"
+            
+            echo ""
+            echo "=== Performance Test Summary ==="
+            echo "Performance Level: $PERFORMANCE_LEVEL"
+            echo "Issues Found: $PERFORMANCE_ISSUES"
+            echo "Report: $PERF_REPORT"
+            
+            case "$PERFORMANCE_LEVEL" in
+              poor)
+                echo "::error::Performance issues detected"
+                exit 1
+                ;;
+              warning)
+                echo "::warning::Performance warnings detected"
+                ;;
+              *)
+                echo "✅ Performance test passed"
+                ;;
+            esac
+          EOF
+
+  # Job 5: Generate comprehensive report
+  generate-report:
+    runs-on: ubuntu-latest
+    needs: [monitoring-setup, health-monitoring, security-monitoring, performance-monitoring]
+    if: always() && inputs.generate_report == true
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Compile comprehensive report
+        run: |
+          echo "Generating comprehensive monitoring report..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            mkdir -p ${{ env.REPORT_DIR }}
+            cd ${{ env.REPORT_DIR }}
+            
+            COMPREHENSIVE_REPORT="comprehensive-report-$(date +%Y%m%d-%H%M%S).json"
+            
+            echo "=== Comprehensive Report Generation ==="
+            echo "Report: $COMPREHENSIVE_REPORT"
+            
+            # Initialize comprehensive report
+            cat > "$COMPREHENSIVE_REPORT" << 'COMP_START'
+          {
+            "report_type": "comprehensive_monitoring",
+            "environment": "${{ needs.monitoring-setup.outputs.environment }}",
+            "validation_type": "${{ needs.monitoring-setup.outputs.validation-type }}",
+            "generation_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "server": "${{ env.REMOTE_SERVER }}",
+            "github_workflow": "${{ github.run_id }}",
+            "reports": {}
+          }
+          COMP_START
+            
+            # Collect individual reports
+            echo "Collecting individual reports..."
+            
+            # Health check reports
+            if [[ -d "${{ env.MONITORING_DIR }}/health-check" ]]; then
+              LATEST_HEALTH=$(ls -t ${{ env.MONITORING_DIR }}/health-check/health-report-*.json 2>/dev/null | head -1 || echo "")
+              if [[ -n "$LATEST_HEALTH" && -f "$LATEST_HEALTH" ]]; then
+                echo "Found health report: $LATEST_HEALTH"
+                jq --slurpfile health "$LATEST_HEALTH" '.reports.health = $health[0]' "$COMPREHENSIVE_REPORT" > "$COMPREHENSIVE_REPORT.tmp" && mv "$COMPREHENSIVE_REPORT.tmp" "$COMPREHENSIVE_REPORT"
+              fi
+            fi
+            
+            # Security audit reports  
+            if [[ -d "${{ env.MONITORING_DIR }}/security-audit" ]]; then
+              LATEST_SECURITY=$(ls -t ${{ env.MONITORING_DIR }}/security-audit/security-audit-*.json 2>/dev/null | head -1 || echo "")
+              if [[ -n "$LATEST_SECURITY" && -f "$LATEST_SECURITY" ]]; then
+                echo "Found security report: $LATEST_SECURITY"
+                jq --slurpfile security "$LATEST_SECURITY" '.reports.security = $security[0]' "$COMPREHENSIVE_REPORT" > "$COMPREHENSIVE_REPORT.tmp" && mv "$COMPREHENSIVE_REPORT.tmp" "$COMPREHENSIVE_REPORT"
+              fi
+            fi
+            
+            # Performance test reports
+            if [[ -d "${{ env.MONITORING_DIR }}/performance-test" ]]; then
+              LATEST_PERFORMANCE=$(ls -t ${{ env.MONITORING_DIR }}/performance-test/performance-test-*.json 2>/dev/null | head -1 || echo "")
+              if [[ -n "$LATEST_PERFORMANCE" && -f "$LATEST_PERFORMANCE" ]]; then
+                echo "Found performance report: $LATEST_PERFORMANCE"
+                jq --slurpfile performance "$LATEST_PERFORMANCE" '.reports.performance = $performance[0]' "$COMPREHENSIVE_REPORT" > "$COMPREHENSIVE_REPORT.tmp" && mv "$COMPREHENSIVE_REPORT.tmp" "$COMPREHENSIVE_REPORT"
+              fi
+            fi
+            
+            # Calculate overall status
+            OVERALL_STATUS="healthy"
+            CRITICAL_ISSUES=0
+            WARNING_ISSUES=0
+            
+            # Check health status
+            HEALTH_STATUS=$(jq -r '.reports.health.overall_health // "unknown"' "$COMPREHENSIVE_REPORT" 2>/dev/null)
+            if [[ "$HEALTH_STATUS" == "critical" ]]; then
+              OVERALL_STATUS="critical"
+              CRITICAL_ISSUES=$((CRITICAL_ISSUES + 1))
+            elif [[ "$HEALTH_STATUS" == "warning" ]]; then
+              WARNING_ISSUES=$((WARNING_ISSUES + 1))
+            fi
+            
+            # Check security status
+            SECURITY_LEVEL=$(jq -r '.reports.security.security_level // "unknown"' "$COMPREHENSIVE_REPORT" 2>/dev/null)
+            if [[ "$SECURITY_LEVEL" == "critical" ]]; then
+              OVERALL_STATUS="critical"
+              CRITICAL_ISSUES=$((CRITICAL_ISSUES + 1))
+            elif [[ "$SECURITY_LEVEL" == "warning" ]]; then
+              WARNING_ISSUES=$((WARNING_ISSUES + 1))
+            fi
+            
+            # Check performance status
+            PERFORMANCE_LEVEL=$(jq -r '.reports.performance.performance_level // "unknown"' "$COMPREHENSIVE_REPORT" 2>/dev/null)
+            if [[ "$PERFORMANCE_LEVEL" == "poor" ]]; then
+              OVERALL_STATUS="critical"
+              CRITICAL_ISSUES=$((CRITICAL_ISSUES + 1))
+            elif [[ "$PERFORMANCE_LEVEL" == "warning" ]]; then
+              WARNING_ISSUES=$((WARNING_ISSUES + 1))
+            fi
+            
+            # If no critical issues but warnings exist, set to warning
+            if [[ $CRITICAL_ISSUES -eq 0 && $WARNING_ISSUES -gt 0 ]]; then
+              OVERALL_STATUS="warning"
+            fi
+            
+            # Update comprehensive report with summary
+            jq --arg overall "$OVERALL_STATUS" \
+               --argjson critical $CRITICAL_ISSUES \
+               --argjson warnings $WARNING_ISSUES \
+               '.summary = {
+                 "overall_status": $overall,
+                 "critical_issues": $critical,
+                 "warning_issues": $warnings,
+                 "health_status": "'$HEALTH_STATUS'",
+                 "security_level": "'$SECURITY_LEVEL'",
+                 "performance_level": "'$PERFORMANCE_LEVEL'"
+               }' "$COMPREHENSIVE_REPORT" > "$COMPREHENSIVE_REPORT.tmp" && mv "$COMPREHENSIVE_REPORT.tmp" "$COMPREHENSIVE_REPORT"
+            
+            echo ""
+            echo "=== Comprehensive Report Summary ==="
+            echo "Overall Status: $OVERALL_STATUS"
+            echo "Critical Issues: $CRITICAL_ISSUES"
+            echo "Warning Issues: $WARNING_ISSUES"
+            echo "Health: $HEALTH_STATUS"
+            echo "Security: $SECURITY_LEVEL" 
+            echo "Performance: $PERFORMANCE_LEVEL"
+            echo ""
+            echo "Report saved: $COMPREHENSIVE_REPORT"
+            
+            # Create human-readable summary
+            SUMMARY_FILE="${COMPREHENSIVE_REPORT%.json}.txt"
+            cat > "$SUMMARY_FILE" << SUMMARY_EOF
+          Comprehensive Monitoring Report
+          ==============================
+          Environment: ${{ needs.monitoring-setup.outputs.environment }}
+          Validation Type: ${{ needs.monitoring-setup.outputs.validation-type }}
+          Server: ${{ env.REMOTE_SERVER }}
+          Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
+          SUMMARY
+          -------
+          Overall Status: $OVERALL_STATUS
+          Critical Issues: $CRITICAL_ISSUES
+          Warning Issues: $WARNING_ISSUES
+          
+          COMPONENT STATUS
+          ---------------
+          Health Check: $HEALTH_STATUS
+          Security Audit: $SECURITY_LEVEL
+          Performance Test: $PERFORMANCE_LEVEL
+          
+          RECOMMENDATIONS
+          --------------
+          SUMMARY_EOF
+            
+            # Add recommendations based on status
+            case "$OVERALL_STATUS" in
+              critical)
+                cat >> "$SUMMARY_FILE" << 'REC_CRITICAL'
+          🚨 CRITICAL ISSUES DETECTED - IMMEDIATE ACTION REQUIRED
+          
+          1. Review detailed reports for specific issues
+          2. Address critical security vulnerabilities immediately
+          3. Fix unhealthy services before continuing operations
+          4. Consider emergency rollback if issues are deployment-related
+          5. Monitor system continuously until issues are resolved
+          REC_CRITICAL
+                ;;
+              warning)
+                cat >> "$SUMMARY_FILE" << 'REC_WARNING'
+          ⚠️ WARNING ISSUES DETECTED - ATTENTION REQUIRED
+          
+          1. Review warning issues in the detailed reports
+          2. Schedule maintenance to address performance issues
+          3. Plan security improvements for next maintenance window
+          4. Monitor trends to prevent issues from becoming critical
+          REC_WARNING
+                ;;
+              *)
+                cat >> "$SUMMARY_FILE" << 'REC_HEALTHY'
+          ✅ SYSTEM HEALTHY - CONTINUE MONITORING
+          
+          1. Maintain current monitoring schedule
+          2. Continue regular security audits
+          3. Keep performance benchmarks for trend analysis
+          4. Document current baseline for future comparisons
+          REC_HEALTHY
+                ;;
+            esac
+            
+            echo "Human-readable summary: $SUMMARY_FILE"
+            
+            # Set exit code based on overall status
+            case "$OVERALL_STATUS" in
+              critical)
+                exit 1
+                ;;
+              warning)
+                exit 2
+                ;;
+              *)
+                exit 0
+                ;;
+            esac
+          EOF
+
+      - name: Generate GitHub summary
+        if: always()
+        run: |
+          echo "## 📊 Comprehensive Monitoring Report" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.monitoring-setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Validation Type: ${{ needs.monitoring-setup.outputs.validation-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Server: ${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall status based on job results
+          HEALTH_STATUS="${{ needs.health-monitoring.result }}"
+          SECURITY_STATUS="${{ needs.security-monitoring.result }}"  
+          PERFORMANCE_STATUS="${{ needs.performance-monitoring.result }}"
+          
+          OVERALL_SUCCESS="true"
+          if [[ "$HEALTH_STATUS" == "failure" || "$SECURITY_STATUS" == "failure" || "$PERFORMANCE_STATUS" == "failure" ]]; then
+            OVERALL_SUCCESS="false"
+          fi
+          
+          if [[ "$OVERALL_SUCCESS" == "true" ]]; then
+            echo "## ✅ Overall Status: HEALTHY" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All monitoring checks completed successfully." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Overall Status: ISSUES DETECTED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "One or more monitoring checks detected issues requiring attention." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
+          
+          case "$HEALTH_STATUS" in
+            success)
+              echo "- **Health Check**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+              ;;
+            failure)
+              echo "- **Health Check**: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+              ;;
+            skipped)
+              echo "- **Health Check**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+          
+          case "$SECURITY_STATUS" in
+            success)
+              echo "- **Security Audit**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+              ;;
+            failure)
+              echo "- **Security Audit**: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+              ;;
+            skipped)
+              echo "- **Security Audit**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+          
+          case "$PERFORMANCE_STATUS" in
+            success)
+              echo "- **Performance Test**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+              ;;
+            failure)
+              echo "- **Performance Test**: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+              ;;
+            skipped)
+              echo "- **Performance Test**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Detailed Reports:" >> $GITHUB_STEP_SUMMARY
+          echo "Comprehensive monitoring reports are available on the server:" >> $GITHUB_STEP_SUMMARY
+          echo "- Health reports: \`${{ env.MONITORING_DIR }}/health-check/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Security reports: \`${{ env.MONITORING_DIR }}/security-audit/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance reports: \`${{ env.MONITORING_DIR }}/performance-test/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Comprehensive reports: \`${{ env.REPORT_DIR }}/\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Actions:" >> $GITHUB_STEP_SUMMARY
+          if [[ "$OVERALL_SUCCESS" == "true" ]]; then
+            echo "1. **Continue monitoring** according to schedule" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Review trends** in performance and resource usage" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Update baselines** based on current performance" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "1. **Review failed test details** in job logs above" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Address critical issues** immediately" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Plan remediation** for warning-level issues" >> $GITHUB_STEP_SUMMARY
+            echo "4. **Re-run monitoring** after fixes are applied" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa

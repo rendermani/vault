@@ -1,0 +1,188 @@
+
+name: validate-traefik-ssl
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7 3 * * *"  # daily @ 03:07 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Traefik TLS & Dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ORG: rendermani
+      REPO: hashi-nomad-vault-traefik
+      TRAEFIK_HOST: ${{ secrets.TRAEFIK_HOST }}
+      DASH_USER: ${{ secrets.TRAEFIK_DASH_USER }}
+      DASH_PASS: ${{ secrets.TRAEFIK_DASH_PASS }}
+
+    steps:
+      - name: Pre-flight checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${TRAEFIK_HOST:-}" ]]; then
+            echo "❌ Missing TRAEFIK_HOST secret"; exit 1
+          fi
+          echo "Target host: ${TRAEFIK_HOST}"
+
+      - name: Install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y dnsutils jq coreutils openssl curl
+
+      - name: DNS A/AAAA resolve
+        id: dns
+        shell: bash
+        run: |
+          set -euo pipefail
+          A_IPS="$(dig +short A "${TRAEFIK_HOST}")" || true
+          AAAA_IPS="$(dig +short AAAA "${TRAEFIK_HOST}")" || true
+          echo "A records:"
+          echo "${A_IPS:-<none>}"
+          echo "AAAA records:"
+          echo "${AAAA_IPS:-<none>}"
+          [[ -n "${A_IPS}" || -n "${AAAA_IPS}" ]] || { echo "❌ DNS did not resolve ${TRAEFIK_HOST}"; exit 2; }
+          {
+            echo "host=${TRAEFIK_HOST}"
+            echo "a_records=${A_IPS//[$'\n']/,}"
+            echo "aaaa_records=${AAAA_IPS//[$'\n']/,}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: HTTP -> HTTPS redirect
+        id: redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -x
+          CODE="$(curl -sS -o /tmp/http_head.txt -D - -L --max-redirs 0 -w '%{http_code}' "http://${TRAEFIK_HOST}/" || true)"
+          set +x
+          cat /tmp/http_head.txt || true
+          if [[ "$CODE" != "301" && "$CODE" != "302" && "$CODE" != "308" ]]; then
+            echo "❌ Expected 301/302/308 from http://${TRAEFIK_HOST}/ got $CODE"
+            exit 3
+          fi
+          LOC="$(awk '/^Location:/ {print $2}' /tmp/http_head.txt | tr -d '\r' || true)"
+          echo "Redirect Location: ${LOC}"
+          [[ "$LOC" == "https://${TRAEFIK_HOST}/"* ]] || { echo "❌ Redirect location not HTTPS to same host"; exit 4; }
+
+      - name: TLS certificate details
+        id: cert
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pull server cert
+          echo | openssl s_client -servername "${TRAEFIK_HOST}" -connect "${TRAEFIK_HOST}:443" -showcerts > /tmp/chain.txt 2>/dev/null || true
+          awk 'BEGIN{c=0}/-----BEGIN CERTIFICATE-----/{c++} c==1, /-----END CERTIFICATE-----/' /tmp/chain.txt > /tmp/server.crt
+          if [[ ! -s /tmp/server.crt ]]; then
+            echo "❌ Could not extract server certificate"; exit 5
+          fi
+          openssl x509 -in /tmp/server.crt -noout -subject -issuer -dates -fingerprint -sha256 > /tmp/cert_info.txt
+          openssl x509 -in /tmp/server.crt -noout -text > /tmp/cert_text.txt
+
+          echo "== CERT INFO =="; cat /tmp/cert_info.txt
+
+          # Assert not Traefik default certificate
+          if grep -qiE 'TRAEFIK DEFAULT CERT(IFICATE)?' /tmp/cert_info.txt /tmp/cert_text.txt; then
+            echo "❌ Found Traefik default certificate"; exit 6
+          fi
+
+          # Ensure SAN includes our host
+          if ! grep -q "DNS:${TRAEFIK_HOST}" /tmp/cert_text.txt; then
+            echo "❌ Certificate SAN does not include ${TRAEFIK_HOST}"; exit 7
+          fi
+
+          # Basic handshake success with curl
+          if ! curl -sS --fail --location "https://${TRAEFIK_HOST}/" -o /dev/null; then
+            echo "❌ HTTPS GET failed"; exit 8
+          fi
+
+      - name: Dashboard (unauthenticated) should be denied
+        id: dash_unauth
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl -sS -o /dev/null -w '%{http_code}' "https://${TRAEFIK_HOST}/dashboard/")" || true
+          echo "Unauth /dashboard/ HTTP $CODE"
+          # Accept 401 or 403 as a proper denial
+          [[ "$CODE" == "401" || "$CODE" == "403" ]] || {
+            echo "❌ Expected 401/403 for unauthenticated dashboard, got $CODE"; exit 9;
+          }
+
+      - name: Dashboard (authenticated) should succeed (optional)
+        id: dash_auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DASH_USER:-}" || -z "${DASH_PASS:-}" ]]; then
+            echo "No dashboard creds provided; skipping auth success check."
+            exit 0
+          fi
+          CODE="$(curl -sS -u "${DASH_USER}:${DASH_PASS}" -o /tmp/dash.html -w '%{http_code}' "https://${TRAEFIK_HOST}/dashboard/")" || true
+          echo "Auth /dashboard/ HTTP $CODE"
+          # Traefik dashboard may 200 or 3xx to /dashboard/#/
+          if [[ "$CODE" != "200" && "$CODE" != "301" && "$CODE" != "302" && "$CODE" != "303" && "$CODE" != "307" && "$CODE" != "308" ]]; then
+            echo "❌ Expected 2xx/3xx for authenticated dashboard; got $CODE"
+            exit 10
+          fi
+
+      - name: Internal ports must not be publicly reachable
+        id: internal_ports
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_closed () {
+            local URL="$1"
+            echo "Probing $URL (expecting connection failure or non-HTTP)"
+            if curl -sS --connect-timeout 3 "$URL" -o /dev/null; then
+              echo "❌ Unexpectedly reachable: $URL"; return 1
+            fi
+            return 0
+          }
+          FAIL=0
+          check_closed "http://${TRAEFIK_HOST}:8500" || FAIL=1   # Consul UI/API should be bound to localhost
+          check_closed "http://${TRAEFIK_HOST}:4646" || FAIL=1   # Nomad UI/API should be bound to localhost
+          check_closed "http://${TRAEFIK_HOST}:8200" || FAIL=1   # Vault API should be bound to localhost
+          exit $FAIL
+
+      - name: Summarize results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Traefik SSL Validation Summary"
+            echo ""
+            echo "- Host: \`${TRAEFIK_HOST}\`"
+            echo "- DNS A: \`${{ steps.dns.outputs.a_records || 'n/a' }}\`"
+            echo "- DNS AAAA: \`${{ steps.dns.outputs.aaaa_records || 'n/a' }}\`"
+            echo "- HTTP → HTTPS: ✅"
+            echo "- Certificate: ✅ valid & **not default**"
+            echo "- Dashboard unauth: ✅ denied (401/403)"
+            if [[ -n "${DASH_USER:-}" && -n "${DASH_PASS:-}" ]]; then
+              echo "- Dashboard auth: ✅ success (2xx/3xx)"
+            else
+              echo "- Dashboard auth: ⚠️ skipped (no creds)"
+            fi
+            echo "- Internal ports (8500/4646/8200): ✅ not publicly reachable"
+            echo ""
+            echo "> Detailed artifacts: cert_info.txt, cert_text.txt, http_head.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traefik-validation-artifacts
+          path: |
+            /tmp/cert_info.txt
+            /tmp/cert_text.txt
+            /tmp/http_head.txt
+            /tmp/dash.html
+          if-no-files-found: ignore

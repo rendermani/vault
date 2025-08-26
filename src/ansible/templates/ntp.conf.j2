@@ -1,0 +1,34 @@
+# /etc/ntp.conf, configuration for ntpd
+
+# Drift file
+driftfile /var/lib/ntp/ntp.drift
+
+# Leap seconds definition provided by tzdata
+leapfile /usr/share/zoneinfo/leap-seconds.list
+
+# Statistics directory
+statsdir /var/log/ntpstats/
+statistics loopstats peerstats clockstats
+filegen loopstats file loopstats type day enable
+filegen peerstats file peerstats type day enable
+filegen clockstats file clockstats type day enable
+
+# NTP servers
+{% for server in ntp_servers %}
+server {{ server }} iburst
+{% endfor %}
+
+# Access control configuration
+# Restrict default
+restrict default kod notrap nomodify nopeer noquery limited
+
+# Local users may interrogate the ntp server more closely
+restrict 127.0.0.1
+restrict ::1
+
+# Clients from this subnet may query the NTP server
+restrict 127.0.0.0 mask 255.0.0.0 nomodify notrap
+
+# If you want to provide time to the local subnet, change the next line
+# By default, no access is allowed for modification or queries
+restrict default ignore

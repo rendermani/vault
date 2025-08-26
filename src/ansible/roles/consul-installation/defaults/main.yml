@@ -1,0 +1,69 @@
+---
+# Default variables for consul-installation role
+
+# Consul version and installation
+consul_version: "1.18.0"
+consul_architecture: "amd64"
+consul_binary_url: "https://releases.hashicorp.com/consul/{{ consul_version }}/consul_{{ consul_version }}_linux_{{ consul_architecture }}.zip"
+
+# Consul user and directories
+consul_user: "consul"
+consul_group: "consul"
+consul_home_dir: "/opt/consul"
+consul_data_dir: "/opt/consul/data"
+consul_config_dir: "/etc/consul.d"
+consul_log_dir: "/var/log/consul"
+consul_tls_dir: "/etc/consul/tls"
+
+# Phase 1: Basic configuration - localhost binding only
+consul_datacenter: "dc1"
+consul_server: false
+consul_bootstrap_expect: 1
+consul_ui_enabled: true
+consul_log_level: "INFO"
+consul_enable_syslog: true
+
+# Phase 1 Network configuration - SECURITY FIRST
+consul_bind_address: "127.0.0.1"  # localhost only for Phase 1
+consul_client_address: "127.0.0.1"  # localhost only for Phase 1
+consul_advertise_address: "{{ ansible_default_ipv4.address }}"
+
+# Phase 1: No encryption, no ACLs, no TLS yet
+consul_encrypt_enable: false
+consul_encrypt_key: ""
+consul_acl_enable: false
+consul_tls_enable: false
+
+# Service registration and health checks
+consul_enable_script_checks: false  # Security: disabled in Phase 1
+consul_disable_remote_exec: true
+consul_disable_update_check: true
+
+# Performance and resource settings
+consul_performance:
+  raft_multiplier: 1
+
+consul_limits:
+  http_max_conns_per_client: 200
+
+# Logging configuration
+consul_log_rotate_bytes: 104857600  # 100MB
+consul_log_rotate_max_files: 5
+
+# Connect/Service Mesh disabled in Phase 1
+consul_connect_enabled: false
+
+# DNS configuration
+consul_dns_config:
+  enable_truncate: true
+  only_passing: true
+
+# Ports configuration
+consul_ports:
+  dns: 8600
+  http: 8500
+  https: -1  # Disabled in Phase 1
+  grpc: -1   # Disabled in Phase 1
+  server: 8300
+  serf_lan: 8301
+  serf_wan: 8302

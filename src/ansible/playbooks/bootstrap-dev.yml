@@ -1,0 +1,61 @@
+---
+- name: Development Environment Bootstrap
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Display environment information
+      debug:
+        msg:
+          - "=== Development Environment Bootstrap ==="
+          - "Environment: {{ environment | default('develop') }}"
+          - "Target Host: {{ inventory_hostname }}"
+          - "Skip Security Hardening: {{ skip_security_hardening | default(true) }}"
+          - "Enable Debug Logging: {{ enable_debug_logging | default(true) }}"
+          - ""
+          - "This configuration is for DEVELOPMENT only!"
+          - "Security settings are relaxed for easier development."
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+  tasks:
+    - import_tasks: ../roles/system-hardening/tasks/main.yml
+      when: not (skip_security_hardening | default(true))
+      tags: security
+
+    - import_tasks: ../tasks/firewall-dev.yml
+      tags: firewall
+
+    - import_tasks: ../roles/docker-installation/tasks/main.yml
+      tags: docker
+
+    - import_tasks: ../tasks/consul-dev.yml
+      tags: consul
+
+    - import_tasks: ../tasks/nomad-dev.yml
+      tags: nomad
+
+  post_tasks:
+    - name: Verify development services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - docker
+        - consul
+        - nomad
+
+    - name: Display development access information
+      debug:
+        msg:
+          - "=== Development Environment Ready ==="
+          - "Consul UI: http://{{ ansible_default_ipv4.address }}:8500"
+          - "Nomad UI: http://{{ ansible_default_ipv4.address }}:4646"
+          - ""
+          - "Note: This is a development environment with relaxed security!"
+          - "DO NOT use this configuration in production!"

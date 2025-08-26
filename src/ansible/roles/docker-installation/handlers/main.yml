@@ -1,0 +1,21 @@
+---
+# Handlers for docker-installation role
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+
+- name: stop docker
+  systemd:
+    name: docker
+    state: stopped
+
+- name: start docker
+  systemd:
+    name: docker
+    state: started

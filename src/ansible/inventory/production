@@ -1,0 +1,18 @@
+[vault_servers]
+vault-prod-01 ansible_host=YOUR_SERVER_IP ansible_user=ubuntu
+
+[consul_servers]
+vault-prod-01
+
+[nomad_servers]
+vault-prod-01
+
+[nomad_clients]
+vault-prod-01
+
+[all:vars]
+ansible_ssh_private_key_file=~/.ssh/vault-prod-key
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+consul_datacenter=dc1
+consul_encrypt_key=YOUR_CONSUL_ENCRYPT_KEY
+nomad_datacenter=dc1

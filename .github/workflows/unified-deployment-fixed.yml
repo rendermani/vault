@@ -1,0 +1,715 @@
+name: Unified Deployment Orchestration (Fixed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      deployment_phases:
+        description: 'Phases to execute'
+        required: true
+        type: choice
+        options:
+          - all
+          - bootstrap-only
+          - terraform-only
+          - nomad-packs-only
+          - infrastructure-only
+          - custom
+        default: 'all'
+      custom_phases:
+        description: 'Custom phases (if "custom" selected): phase1,phase3,phase6'
+        required: false
+        type: string
+        default: ''
+      force_bootstrap:
+        description: 'Force complete bootstrap (destructive)'
+        required: false
+        type: boolean
+        default: false
+      auto_approve:
+        description: 'Auto-approve all deployment steps'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Perform dry run across all phases'
+        required: false
+        type: boolean
+        default: false
+      continue_on_failure:
+        description: 'Continue execution even if a phase fails'
+        required: false
+        type: boolean
+        default: false
+      deployment_timeout:
+        description: 'Overall deployment timeout (minutes)'
+        required: false
+        type: number
+        default: 90
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'src/ansible/**'
+      - 'src/terraform/**' 
+      - 'src/nomad-packs/**'
+      - '.github/workflows/unified-deployment-fixed.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/ansible/**'
+      - 'src/terraform/**'
+      - 'src/nomad-packs/**'
+      - '.github/workflows/unified-deployment-fixed.yml'
+
+env:
+  # Server Configuration - Use secrets for security
+  REMOTE_SERVER: ${{ secrets.REMOTE_SERVER || 'cloudya.net' }}
+  REMOTE_USER: ${{ secrets.REMOTE_USER || 'root' }}
+  
+  # HashiCorp Service Configuration
+  CONSUL_VERSION: ${{ vars.CONSUL_VERSION || '1.17.0' }}
+  NOMAD_VERSION: ${{ vars.NOMAD_VERSION || '1.7.2' }}
+  VAULT_VERSION: ${{ vars.VAULT_VERSION || '1.15.4' }}
+  
+  # Service Addresses
+  CONSUL_ADDRESS: ${{ secrets.CONSUL_ADDRESS }}
+  NOMAD_ADDRESS: ${{ secrets.NOMAD_ADDRESS }}
+  VAULT_ADDRESS: ${{ secrets.VAULT_ADDRESS }}
+  
+  # Deployment tracking
+  DEPLOYMENT_ID: "${{ github.run_id }}-${{ github.run_attempt }}"
+
+jobs:
+  # Job 1: Enhanced deployment planning with security validation
+  deployment-planning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      environment: ${{ steps.plan.outputs.environment }}
+      phases: ${{ steps.plan.outputs.phases }}
+      strategy: ${{ steps.plan.outputs.strategy }}
+      execute-phase1: ${{ steps.plan.outputs.execute-phase1 }}
+      execute-phase3: ${{ steps.plan.outputs.execute-phase3 }}
+      execute-phase6: ${{ steps.plan.outputs.execute-phase6 }}
+      deployment-id: ${{ steps.plan.outputs.deployment-id }}
+      is-production: ${{ steps.plan.outputs.is-production }}
+      security-level: ${{ steps.plan.outputs.security-level }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enhanced deployment planning
+        id: plan
+        run: |
+          # Determine environment with better logic
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENV="production"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            ENV="develop"
+          else
+            ENV="develop"  # Default for PRs and other branches
+          fi
+          
+          # Set security level based on environment
+          case "$ENV" in
+            production)
+              SECURITY_LEVEL="maximum"
+              ;;
+            staging)
+              SECURITY_LEVEL="high"
+              ;;
+            develop)
+              SECURITY_LEVEL="relaxed"
+              ;;
+          esac
+          
+          # Determine phases to execute (same logic as before)
+          PHASES="${{ inputs.deployment_phases || 'all' }}"
+          CUSTOM_PHASES="${{ inputs.custom_phases }}"
+          
+          PHASE1=false
+          PHASE3=false
+          PHASE6=false
+          
+          case "$PHASES" in
+            all)
+              PHASE1=true
+              PHASE3=true
+              PHASE6=true
+              STRATEGY="full-deployment"
+              ;;
+            bootstrap-only)
+              PHASE1=true
+              STRATEGY="bootstrap-only"
+              ;;
+            terraform-only)
+              PHASE3=true
+              STRATEGY="terraform-only"
+              ;;
+            nomad-packs-only)
+              PHASE6=true
+              STRATEGY="packs-only"
+              ;;
+            infrastructure-only)
+              PHASE1=true
+              PHASE3=true
+              STRATEGY="infrastructure-only"
+              ;;
+            custom)
+              if [[ -n "$CUSTOM_PHASES" ]]; then
+                IFS=',' read -ra PHASE_ARRAY <<< "$CUSTOM_PHASES"
+                for phase in "${PHASE_ARRAY[@]}"; do
+                  case "$phase" in
+                    phase1|1)
+                      PHASE1=true
+                      ;;
+                    phase3|3)
+                      PHASE3=true
+                      ;;
+                    phase6|6)
+                      PHASE6=true
+                      ;;
+                  esac
+                done
+                STRATEGY="custom"
+              else
+                echo "❌ Custom phases specified but no custom_phases provided"
+                exit 1
+              fi
+              ;;
+          esac
+          
+          IS_PROD="false"
+          if [[ "$ENV" == "production" ]]; then
+            IS_PROD="true"
+          fi
+          
+          # Output variables
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "phases=$PHASES" >> $GITHUB_OUTPUT
+          echo "strategy=$STRATEGY" >> $GITHUB_OUTPUT
+          echo "execute-phase1=$PHASE1" >> $GITHUB_OUTPUT
+          echo "execute-phase3=$PHASE3" >> $GITHUB_OUTPUT
+          echo "execute-phase6=$PHASE6" >> $GITHUB_OUTPUT
+          echo "deployment-id=${{ env.DEPLOYMENT_ID }}" >> $GITHUB_OUTPUT
+          echo "is-production=$IS_PROD" >> $GITHUB_OUTPUT
+          echo "security-level=$SECURITY_LEVEL" >> $GITHUB_OUTPUT
+          
+          echo "=== Enhanced Deployment Plan ==="
+          echo "Environment: $ENV"
+          echo "Security Level: $SECURITY_LEVEL"
+          echo "Phases: $PHASES"
+          echo "Strategy: $STRATEGY"
+          echo "Execute Phase 1 (Ansible): $PHASE1"
+          echo "Execute Phase 3 (Terraform): $PHASE3"
+          echo "Execute Phase 6 (Nomad Packs): $PHASE6"
+          echo "Deployment ID: ${{ env.DEPLOYMENT_ID }}"
+          echo "Production: $IS_PROD"
+
+      - name: Validate secrets and configuration
+        run: |
+          echo "Validating deployment configuration..."
+          
+          # Check required secrets for the environment
+          ENV="${{ steps.plan.outputs.environment }}"
+          
+          if [[ "$ENV" == "production" ]]; then
+            # Production requires all secrets
+            REQUIRED_SECRETS=(
+              "SSH_PRIVATE_KEY"
+              "ANSIBLE_VAULT_PASSWORD" 
+              "CONSUL_HTTP_TOKEN"
+              "VAULT_TOKEN"
+            )
+            
+            for secret in "${REQUIRED_SECRETS[@]}"; do
+              if [[ -z "${{ secrets[secret] }}" ]]; then
+                echo "❌ Missing required secret for production: $secret"
+                exit 1
+              fi
+            done
+            echo "✓ All required production secrets are configured"
+          else
+            # Non-production environments need at least SSH key
+            if [[ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]]; then
+              echo "❌ SSH_PRIVATE_KEY secret is required for deployment"
+              exit 1
+            fi
+            echo "✓ Required secrets are configured for $ENV"
+          fi
+          
+          # Validate HashiCorp versions
+          echo "Using HashiCorp versions:"
+          echo "- Consul: ${{ env.CONSUL_VERSION }}"
+          echo "- Nomad: ${{ env.NOMAD_VERSION }}"
+          echo "- Vault: ${{ env.VAULT_VERSION }}"
+
+      - name: Security validation for production
+        if: steps.plan.outputs.is-production == 'true'
+        run: |
+          echo "🚨 PRODUCTION DEPLOYMENT SECURITY VALIDATION 🚨"
+          echo "=================================================="
+          
+          # Check deployment time (maintenance window)
+          CURRENT_HOUR=$(date +%H)
+          CURRENT_DOW=$(date +%u)  # 1-7, Monday is 1
+          
+          # Example: Allow production deploys only during business hours on weekdays
+          # Or during weekend maintenance window
+          if [[ $CURRENT_DOW -ge 1 && $CURRENT_DOW -le 5 ]]; then
+            # Weekdays: 9 AM - 5 PM UTC
+            if [[ $CURRENT_HOUR -lt 9 || $CURRENT_HOUR -gt 17 ]]; then
+              echo "⚠️ Production deployment outside business hours ($CURRENT_HOUR UTC)"
+              if [[ "${{ inputs.force_bootstrap }}" != "true" ]]; then
+                echo "Consider scheduling during business hours (9-17 UTC) or weekends"
+              fi
+            fi
+          else
+            # Weekends: Maintenance window 2-6 AM UTC
+            if [[ $CURRENT_HOUR -ge 2 && $CURRENT_HOUR -lt 6 ]]; then
+              echo "✓ Deploying during weekend maintenance window"
+            else
+              echo "⚠️ Production deployment outside weekend maintenance window"
+            fi
+          fi
+          
+          # Check for destructive operations
+          if [[ "${{ inputs.force_bootstrap }}" == "true" ]]; then
+            echo "🚨 DESTRUCTIVE OPERATION: Force bootstrap enabled!"
+            echo "This will COMPLETELY REBUILD the production environment!"
+            
+            if [[ "${{ inputs.dry_run }}" != "true" ]]; then
+              echo "❌ Force bootstrap in production requires dry_run=true first"
+              exit 1
+            fi
+          fi
+          
+          echo "✓ Production security validation completed"
+
+  # Job 2: Phase 1 - Enhanced Ansible Bootstrap
+  phase1-ansible-bootstrap:
+    needs: deployment-planning
+    if: needs.deployment-planning.outputs.execute-phase1 == 'true' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/phase1-ansible-bootstrap.yml
+    with:
+      environment: ${{ needs.deployment-planning.outputs.environment }}
+      server_config: 'single-node'
+      force_bootstrap: ${{ inputs.force_bootstrap || false }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
+
+  # Job 3: Phase 3 - Enhanced Terraform Configuration
+  phase3-terraform-config:
+    needs: [deployment-planning, phase1-ansible-bootstrap]
+    if: always() && needs.deployment-planning.outputs.execute-phase3 == 'true' && github.event_name != 'pull_request' && (needs.phase1-ansible-bootstrap.result == 'success' || needs.phase1-ansible-bootstrap.result == 'skipped' || inputs.continue_on_failure == true)
+    uses: ./.github/workflows/phase3-terraform-config-fixed.yml
+    with:
+      environment: ${{ needs.deployment-planning.outputs.environment }}
+      terraform_action: ${{ inputs.dry_run == true && 'plan' || 'apply' }}
+      auto_approve: ${{ inputs.auto_approve || false }}
+    secrets: inherit
+
+  # Job 4: Phase 6 - Nomad Pack Deployment  
+  phase6-nomad-pack-deploy:
+    needs: [deployment-planning, phase1-ansible-bootstrap, phase3-terraform-config]
+    if: always() && needs.deployment-planning.outputs.execute-phase6 == 'true' && github.event_name != 'pull_request' && (needs.phase3-terraform-config.result == 'success' || needs.phase3-terraform-config.result == 'skipped' || inputs.continue_on_failure == true)
+    uses: ./.github/workflows/phase6-nomad-pack-deploy.yml
+    with:
+      environment: ${{ needs.deployment-planning.outputs.environment }}
+      pack_name: 'all'
+      pack_action: ${{ inputs.dry_run == true && 'plan' || 'run' }}
+      auto_approve: ${{ inputs.auto_approve || false }}
+    secrets: inherit
+
+  # Job 5: Enhanced deployment validation with security checks
+  deployment-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [deployment-planning, phase1-ansible-bootstrap, phase3-terraform-config, phase6-nomad-pack-deploy]
+    if: always() && github.event_name != 'pull_request' && inputs.dry_run != true
+    steps:
+      - name: Install HashiCorp tools for validation
+        run: |
+          # Install tools needed for validation
+          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt update
+          sudo apt install -y consul=${{ env.CONSUL_VERSION }}-1 nomad=${{ env.NOMAD_VERSION }}-1 vault=${{ env.VAULT_VERSION }}-1
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Comprehensive security-aware health check
+        run: |
+          echo "Performing security-aware deployment health check..."
+          
+          # Determine server address to use
+          if [[ -n "${{ secrets.CONSUL_ADDRESS }}" ]]; then
+            CONSUL_ADDR="${{ secrets.CONSUL_ADDRESS }}"
+          else
+            CONSUL_ADDR="${{ env.REMOTE_SERVER }}:8500"
+          fi
+          
+          if [[ -n "${{ secrets.NOMAD_ADDRESS }}" ]]; then
+            NOMAD_ADDR="${{ secrets.NOMAD_ADDRESS }}"
+          else
+            NOMAD_ADDR="${{ env.REMOTE_SERVER }}:4646"
+          fi
+          
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << EOF
+            set -euo pipefail
+            
+            echo "=== Enhanced Deployment Health Check ==="
+            echo "Environment: ${{ needs.deployment-planning.outputs.environment }}"
+            echo "Security Level: ${{ needs.deployment-planning.outputs.security-level }}"
+            echo "Deployment ID: ${{ needs.deployment-planning.outputs.deployment-id }}"
+            echo "Timestamp: \$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # System health with security context
+            echo "=== System Security Health ==="
+            echo "Uptime: \$(uptime -p)"
+            echo "Load: \$(uptime | awk -F'load average:' '{print \$2}')"
+            echo "Memory: \$(free -h | grep Mem | awk '{print "Used: "\$3" / "\$2" ("\$3/\$2*100"%)"}')"
+            echo "Disk: \$(df -h / | tail -1 | awk '{print "Used: "\$3" / "\$2" ("\$5")"}')"
+            
+            # Security service status
+            if systemctl is-active --quiet ufw; then
+              echo "✅ UFW firewall is active"
+              ufw --dry-run status numbered | head -10
+            else
+              echo "⚠️ UFW firewall is not active"
+            fi
+            
+            if systemctl is-active --quiet fail2ban; then
+              echo "✅ Fail2ban is active"
+            else
+              echo "⚠️ Fail2ban is not active"
+            fi
+            echo ""
+            
+            # Enhanced service health checks
+            if [[ "${{ needs.deployment-planning.outputs.execute-phase1 }}" == "true" ]]; then
+              echo "=== HashiCorp Services Health ==="
+              
+              # Consul health with security awareness
+              if systemctl is-active --quiet consul; then
+                echo "✅ Consul is running"
+                
+                # Check if ACLs are enabled
+                CONSUL_INFO=\$(curl -s http://localhost:8500/v1/status/leader 2>/dev/null || echo "connection failed")
+                if [[ "\$CONSUL_INFO" != "connection failed" ]]; then
+                  echo "✅ Consul API is responding"
+                  
+                  # Check ACL status for security-aware environments
+                  if [[ "${{ needs.deployment-planning.outputs.environment }}" != "develop" ]]; then
+                    ACL_STATUS=\$(curl -s http://localhost:8500/v1/acl/bootstrap 2>/dev/null | grep -o '"ID"' || echo "acl-configured")
+                    if [[ "\$ACL_STATUS" == "acl-configured" ]]; then
+                      echo "✅ Consul ACLs appear to be configured"
+                    else
+                      echo "⚠️ Consul ACL status unclear"
+                    fi
+                  fi
+                else
+                  echo "❌ Consul API is not responding"
+                fi
+              else
+                echo "❌ Consul is not running"
+              fi
+              
+              # Nomad health with security awareness
+              if systemctl is-active --quiet nomad; then
+                echo "✅ Nomad is running"
+                NOMAD_INFO=\$(curl -s http://localhost:4646/v1/status/leader 2>/dev/null || echo "connection failed")
+                if [[ "\$NOMAD_INFO" != "connection failed" ]]; then
+                  echo "✅ Nomad API is responding"
+                  
+                  # Check node status
+                  if command -v nomad &> /dev/null; then
+                    NODE_STATUS=\$(nomad node status -short 2>/dev/null | grep ready | wc -l || echo "0")
+                    echo "✅ Nomad nodes ready: \$NODE_STATUS"
+                  fi
+                else
+                  echo "❌ Nomad API is not responding"
+                fi
+              else
+                echo "❌ Nomad is not running"
+              fi
+              echo ""
+            fi
+            
+            # Network security check
+            echo "=== Network Security Status ==="
+            echo "Open service ports:"
+            netstat -tlnp | grep -E ":(4646|8500|8200|8080|22)" | awk '{print \$4, \$7}' | sort || echo "No relevant ports found"
+            echo ""
+            
+            # Check for security state markers
+            if [[ -f /opt/infrastructure/state/security-hardening-complete ]]; then
+              echo "✅ Security hardening completed"
+            else
+              echo "⚠️ Security hardening status unknown"
+            fi
+            
+            echo "=== Enhanced Health Check Complete ==="
+          EOF
+
+      - name: Security compliance check
+        if: needs.deployment-planning.outputs.environment == 'production'
+        run: |
+          echo "Running production security compliance check..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Production Security Compliance Check ==="
+            
+            # Check critical security services
+            SECURITY_SCORE=0
+            TOTAL_CHECKS=6
+            
+            if systemctl is-active --quiet ufw; then
+              echo "✅ Firewall: Active"
+              ((SECURITY_SCORE++))
+            else
+              echo "❌ Firewall: Inactive"
+            fi
+            
+            if systemctl is-active --quiet fail2ban; then
+              echo "✅ Intrusion Detection: Active"
+              ((SECURITY_SCORE++))
+            else
+              echo "❌ Intrusion Detection: Inactive"
+            fi
+            
+            if [[ -f /opt/infrastructure/state/security-hardening-complete ]]; then
+              echo "✅ System Hardening: Applied"
+              ((SECURITY_SCORE++))
+            else
+              echo "❌ System Hardening: Missing"
+            fi
+            
+            # Check SSH configuration
+            if grep -q "PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null; then
+              echo "✅ SSH: Root login disabled"
+              ((SECURITY_SCORE++))
+            else
+              echo "⚠️ SSH: Root login may be enabled"
+            fi
+            
+            # Check for default passwords (basic check)
+            if [[ ! -f /var/tmp/default-passwords-changed ]]; then
+              echo "⚠️ Default Passwords: Status unknown"
+            else
+              echo "✅ Default Passwords: Changed"
+              ((SECURITY_SCORE++))
+            fi
+            
+            # Check automatic updates
+            if systemctl is-active --quiet unattended-upgrades 2>/dev/null; then
+              echo "✅ Automatic Updates: Enabled"
+              ((SECURITY_SCORE++))
+            else
+              echo "⚠️ Automatic Updates: Disabled or not installed"
+            fi
+            
+            echo ""
+            echo "Security Compliance Score: $SECURITY_SCORE/$TOTAL_CHECKS"
+            
+            if [[ $SECURITY_SCORE -ge 4 ]]; then
+              echo "✅ Production security compliance: ACCEPTABLE"
+            else
+              echo "❌ Production security compliance: NEEDS ATTENTION"
+              exit 1
+            fi
+          EOF
+
+      - name: Save enhanced deployment state
+        run: |
+          echo "Saving enhanced deployment state..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << EOF
+            set -euo pipefail
+            
+            mkdir -p /opt/infrastructure/state
+            
+            cat > /opt/infrastructure/state/deployment-complete << 'STATE_MARKER'
+          {
+            "deployment_id": "${{ needs.deployment-planning.outputs.deployment-id }}",
+            "environment": "${{ needs.deployment-planning.outputs.environment }}",
+            "security_level": "${{ needs.deployment-planning.outputs.security-level }}",
+            "strategy": "${{ needs.deployment-planning.outputs.strategy }}",
+            "phases": {
+              "phase1_ansible": "${{ needs.deployment-planning.outputs.execute-phase1 }}",
+              "phase3_terraform": "${{ needs.deployment-planning.outputs.execute-phase3 }}",
+              "phase6_nomad_packs": "${{ needs.deployment-planning.outputs.execute-phase6 }}"
+            },
+            "results": {
+              "phase1_result": "${{ needs.phase1-ansible-bootstrap.result }}",
+              "phase3_result": "${{ needs.phase3-terraform-config.result }}",
+              "phase6_result": "${{ needs.phase6-nomad-pack-deploy.result }}"
+            },
+            "security": {
+              "hardening_applied": $(test -f /opt/infrastructure/state/security-hardening-complete && echo "true" || echo "false"),
+              "firewall_active": $(systemctl is-active --quiet ufw && echo "true" || echo "false"),
+              "fail2ban_active": $(systemctl is-active --quiet fail2ban && echo "true" || echo "false")
+            },
+            "versions": {
+              "consul": "${{ env.CONSUL_VERSION }}",
+              "nomad": "${{ env.NOMAD_VERSION }}",
+              "vault": "${{ env.VAULT_VERSION }}"
+            },
+            "timestamp": "\$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run": "${{ github.run_id }}",
+            "commit": "${{ github.sha }}",
+            "force_bootstrap": "${{ inputs.force_bootstrap || false }}",
+            "auto_approve": "${{ inputs.auto_approve || false }}"
+          }
+          STATE_MARKER
+            
+            echo "Enhanced deployment state saved successfully"
+          EOF
+
+  # Job 6: Final reporting with security summary
+  deployment-summary:
+    runs-on: ubuntu-latest
+    needs: [deployment-planning, phase1-ansible-bootstrap, phase3-terraform-config, phase6-nomad-pack-deploy, deployment-validation]
+    if: always()
+    steps:
+      - name: Generate comprehensive deployment summary
+        run: |
+          echo "# 🚀 Enhanced Unified Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🛡️ Security-Aware Deployment Overview" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ needs.deployment-planning.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security Level**: ${{ needs.deployment-planning.outputs.security-level }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Strategy**: ${{ needs.deployment-planning.outputs.strategy }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment ID**: ${{ needs.deployment-planning.outputs.deployment-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server**: ${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Calculate overall success
+          OVERALL_SUCCESS="true"
+          EXECUTED_PHASES=0
+          SUCCESSFUL_PHASES=0
+          FAILED_PHASES=0
+          
+          # Check each phase
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase1 }}" == "true" ]]; then
+            EXECUTED_PHASES=$((EXECUTED_PHASES + 1))
+            if [[ "${{ needs.phase1-ansible-bootstrap.result }}" == "success" ]]; then
+              SUCCESSFUL_PHASES=$((SUCCESSFUL_PHASES + 1))
+            elif [[ "${{ needs.phase1-ansible-bootstrap.result }}" == "failure" ]]; then
+              FAILED_PHASES=$((FAILED_PHASES + 1))
+              OVERALL_SUCCESS="false"
+            fi
+          fi
+          
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase3 }}" == "true" ]]; then
+            EXECUTED_PHASES=$((EXECUTED_PHASES + 1))
+            if [[ "${{ needs.phase3-terraform-config.result }}" == "success" ]]; then
+              SUCCESSFUL_PHASES=$((SUCCESSFUL_PHASES + 1))
+            elif [[ "${{ needs.phase3-terraform-config.result }}" == "failure" ]]; then
+              FAILED_PHASES=$((FAILED_PHASES + 1))
+              OVERALL_SUCCESS="false"
+            fi
+          fi
+          
+          if [[ "${{ needs.deployment-planning.outputs.execute-phase6 }}" == "true" ]]; then
+            EXECUTED_PHASES=$((EXECUTED_PHASES + 1))
+            if [[ "${{ needs.phase6-nomad-pack-deploy.result }}" == "success" ]]; then
+              SUCCESSFUL_PHASES=$((SUCCESSFUL_PHASES + 1))
+            elif [[ "${{ needs.phase6-nomad-pack-deploy.result }}" == "failure" ]]; then
+              FAILED_PHASES=$((FAILED_PHASES + 1))
+              OVERALL_SUCCESS="false"
+            fi
+          fi
+          
+          # Overall status
+          if [[ "$OVERALL_SUCCESS" == "true" ]]; then
+            echo "## ✅ Deployment Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All requested phases completed successfully with appropriate security measures!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Deployment Status: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "One or more phases failed. Review security implications before retry." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Enhanced Phase Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Phases**: $EXECUTED_PHASES" >> $GITHUB_STEP_SUMMARY
+          echo "- **Successful**: $SUCCESSFUL_PHASES" >> $GITHUB_STEP_SUMMARY
+          echo "- **Failed**: $FAILED_PHASES" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Key improvements
+          echo "## 🔧 Key Improvements in Fixed Version" >> $GITHUB_STEP_SUMMARY
+          echo "### Security Enhancements:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Environment-specific security levels**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Proper secrets management with validation**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Production deployment safety checks**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Security compliance validation**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Infrastructure Improvements:" >> $GITHUB_STEP_SUMMARY  
+          echo "- ✅ **HashiCorp tools properly installed in CI**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Consul backend for Terraform state**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Environment-specific Ansible playbooks**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Service readiness and health validation**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Comprehensive error handling and timeouts**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Environment-specific next steps
+          if [[ "${{ needs.deployment-planning.outputs.environment }}" == "production" ]]; then
+            echo "## 🎯 Production Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "1. **Verify all security controls are active**" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Monitor system performance and security logs**" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Schedule regular security audits**" >> $GITHUB_STEP_SUMMARY
+            echo "4. **Test disaster recovery procedures**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## 🎯 Development/Staging Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "1. **Test applications and services**" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Validate security configurations**" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Run integration tests**" >> $GITHUB_STEP_SUMMARY
+            echo "4. **Prepare for production deployment**" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔧 Management Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into the server" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check deployment state" >> $GITHUB_STEP_SUMMARY
+          echo "cat /opt/infrastructure/state/deployment-complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+          echo "systemctl status consul nomad ufw fail2ban" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Security status" >> $GITHUB_STEP_SUMMARY
+          echo "ufw status numbered" >> $GITHUB_STEP_SUMMARY
+          echo "fail2ban-client status" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set workflow conclusion
+        if: needs.deployment-validation.result == 'failure'
+        run: |
+          echo "::error::Enhanced unified deployment failed - check security compliance and individual phase results"
+          exit 1

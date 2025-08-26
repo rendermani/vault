@@ -1,0 +1,745 @@
+name: Phase 6 - Nomad Pack Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      pack_name:
+        description: 'Nomad Pack to deploy (or "all" for all packs)'
+        required: false
+        type: choice
+        options:
+          - all
+          - vault
+          - traefik
+          - consul-connect
+          - monitoring
+          - custom
+        default: 'all'
+      custom_pack:
+        description: 'Custom pack name (if "custom" selected above)'
+        required: false
+        type: string
+        default: ''
+      pack_action:
+        description: 'Pack operation to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - run
+          - stop
+          - destroy
+        default: 'plan'
+      auto_approve:
+        description: 'Auto-approve pack deployment'
+        required: false
+        type: boolean
+        default: false
+      force_deployment:
+        description: 'Force deployment (ignore running jobs)'
+        required: false
+        type: boolean
+        default: false
+      deployment_timeout:
+        description: 'Deployment timeout in seconds'
+        required: false
+        type: number
+        default: 900
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      pack_name:
+        required: false
+        type: string
+        default: 'all'
+      pack_action:
+        required: true
+        type: string
+      auto_approve:
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Remote Server Configuration
+  REMOTE_SERVER: "cloudya.net"
+  REMOTE_USER: "root"
+  
+  # Nomad Configuration
+  NOMAD_ADDR: "http://localhost:4646"
+  NOMAD_NAMESPACE: "default"
+  NOMAD_REGION: "global"
+  
+  # Pack Configuration
+  NOMAD_PACK_VERSION: "0.0.1-techpreview.3"
+
+jobs:
+  # Job 1: Pre-deployment validation and setup
+  validate-deployment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.setup.outputs.environment }}
+      pack-name: ${{ steps.setup.outputs.pack-name }}
+      pack-list: ${{ steps.setup.outputs.pack-list }}
+      deployment-strategy: ${{ steps.setup.outputs.deployment-strategy }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup deployment variables
+        id: setup
+        run: |
+          ENV="${{ inputs.environment }}"
+          PACK="${{ inputs.pack_name || 'all' }}"
+          CUSTOM_PACK="${{ inputs.custom_pack }}"
+          
+          # Handle custom pack name
+          if [[ "$PACK" == "custom" && -n "$CUSTOM_PACK" ]]; then
+            PACK="$CUSTOM_PACK"
+          fi
+          
+          # Determine pack list based on input
+          case "$PACK" in
+            all)
+              PACK_LIST="vault,traefik,monitoring"
+              STRATEGY="sequential"
+              ;;
+            vault|traefik|monitoring|consul-connect)
+              PACK_LIST="$PACK"
+              STRATEGY="single"
+              ;;
+            *)
+              PACK_LIST="$PACK"
+              STRATEGY="single"
+              ;;
+          esac
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "pack-name=$PACK" >> $GITHUB_OUTPUT
+          echo "pack-list=$PACK_LIST" >> $GITHUB_OUTPUT
+          echo "deployment-strategy=$STRATEGY" >> $GITHUB_OUTPUT
+          
+          echo "Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Pack Name: $PACK"
+          echo "  Pack List: $PACK_LIST"
+          echo "  Strategy: $STRATEGY"
+
+      - name: Validate pack files exist
+        run: |
+          echo "Validating Nomad Pack files..."
+          
+          # Check if src/nomad-packs directory exists
+          if [[ ! -d "src/nomad-packs" ]]; then
+            echo "❌ Nomad packs directory not found: src/nomad-packs"
+            exit 1
+          fi
+          
+          # Validate each pack in the list
+          IFS=',' read -ra PACKS <<< "${{ steps.setup.outputs.pack-list }}"
+          for pack in "${PACKS[@]}"; do
+            pack_dir="src/nomad-packs/$pack"
+            if [[ -d "$pack_dir" ]]; then
+              echo "✓ Pack directory exists: $pack_dir"
+              
+              # Check for required files
+              if [[ -f "$pack_dir/metadata.hcl" ]]; then
+                echo "  ✓ metadata.hcl found"
+              else
+                echo "  ⚠️ metadata.hcl not found"
+              fi
+              
+              if [[ -f "$pack_dir/variables.hcl" ]]; then
+                echo "  ✓ variables.hcl found"
+              else
+                echo "  ⚠️ variables.hcl not found"
+              fi
+              
+              if [[ -d "$pack_dir/templates" ]]; then
+                echo "  ✓ templates directory found"
+                template_count=$(find "$pack_dir/templates" -name "*.nomad.tpl" | wc -l)
+                echo "  ✓ Found $template_count template files"
+              else
+                echo "  ❌ templates directory not found"
+              fi
+            else
+              echo "❌ Pack directory not found: $pack_dir"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All pack validations passed"
+
+      - name: Production deployment safety check
+        if: inputs.environment == 'production' && (inputs.pack_action == 'run' || inputs.pack_action == 'destroy')
+        run: |
+          echo "🚨 PRODUCTION NOMAD PACK DEPLOYMENT 🚨"
+          echo "======================================"
+          echo ""
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Action: ${{ inputs.pack_action }}"
+          echo "Packs: ${{ steps.setup.outputs.pack-list }}"
+          echo "Auto Approve: ${{ inputs.auto_approve }}"
+          echo ""
+          
+          if [[ "${{ inputs.pack_action }}" == "destroy" ]]; then
+            echo "⚠️ WARNING: This will DESTROY running applications!"
+            echo "This operation will stop and remove deployed services."
+            echo ""
+          fi
+          
+          if [[ "${{ inputs.auto_approve }}" == "true" ]]; then
+            echo "⚠️ Auto-approve is enabled for production deployment"
+            echo "Changes will be applied automatically without manual review"
+          fi
+          
+          echo "✓ Production safety check completed"
+
+  # Job 2: Server connectivity and environment preparation
+  prepare-nomad-environment:
+    runs-on: ubuntu-latest
+    needs: validate-deployment
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Test SSH and Nomad connectivity
+        run: |
+          echo "Testing connectivity to remote server..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Server Status ==="
+            echo "Hostname: $(hostname)"
+            echo "Date: $(date)"
+            echo "Uptime: $(uptime -p)"
+            
+            echo ""
+            echo "=== Nomad Status ==="
+            if command -v nomad &> /dev/null; then
+              echo "Nomad version: $(nomad version | head -1)"
+              
+              if nomad node status &> /dev/null; then
+                echo "✓ Nomad cluster is accessible"
+                echo "Nodes:"
+                nomad node status
+                
+                echo ""
+                echo "Running jobs:"
+                nomad job status || echo "No jobs currently running"
+              else
+                echo "❌ Cannot connect to Nomad cluster"
+                exit 1
+              fi
+            else
+              echo "❌ Nomad is not installed"
+              exit 1
+            fi
+            
+            echo ""
+            echo "=== Vault Status (if available) ==="
+            if command -v vault &> /dev/null; then
+              echo "Vault version: $(vault version | head -1)"
+              vault status || echo "Vault is not available or not initialized"
+            else
+              echo "Vault is not installed"
+            fi
+          EOF
+
+      - name: Install/Update Nomad Pack on remote server
+        run: |
+          echo "Installing/updating Nomad Pack on remote server..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << EOF
+            set -euo pipefail
+            
+            echo "Installing Nomad Pack..."
+            cd /tmp
+            
+            # Check if nomad-pack already exists and get version
+            if command -v nomad-pack &> /dev/null; then
+              echo "Current nomad-pack version: \$(nomad-pack version)"
+            else
+              echo "nomad-pack not found, installing..."
+            fi
+            
+            # Download nomad-pack (adjust URL as needed)
+            PACK_VERSION="${{ env.NOMAD_PACK_VERSION }}"
+            PACK_URL="https://releases.hashicorp.com/nomad-pack/\${PACK_VERSION}/nomad-pack_\${PACK_VERSION}_linux_amd64.zip"
+            
+            echo "Downloading nomad-pack \${PACK_VERSION}..."
+            curl -fsSL "\$PACK_URL" -o nomad-pack.zip
+            
+            unzip -o nomad-pack.zip
+            mv nomad-pack /usr/local/bin/
+            chmod +x /usr/local/bin/nomad-pack
+            rm nomad-pack.zip
+            
+            echo "✓ nomad-pack installed:"
+            nomad-pack version
+            
+            # Initialize pack registry if needed
+            echo "Initializing pack registry..."
+            nomad-pack registry add community github.com/hashicorp/nomad-pack-community-registry || echo "Registry already exists"
+            
+            echo "Available pack registries:"
+            nomad-pack registry list
+          EOF
+
+  # Job 3: Nomad Pack plan/validation
+  nomad-pack-plan:
+    runs-on: ubuntu-latest
+    needs: [validate-deployment, prepare-nomad-environment]
+    if: inputs.pack_action == 'plan' || inputs.pack_action == 'run'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Transfer pack files to remote server
+        run: |
+          echo "Transferring Nomad Pack files to remote server..."
+          
+          # Create archive of pack files
+          tar czf nomad-packs.tar.gz src/nomad-packs/
+          
+          # Transfer to remote server
+          scp nomad-packs.tar.gz ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}:/tmp/
+          
+          # Extract on remote server
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            cd /tmp
+            
+            # Clean up old pack files
+            rm -rf /opt/nomad-packs
+            mkdir -p /opt/nomad-packs
+            
+            # Extract new files
+            tar xzf nomad-packs.tar.gz -C /opt/
+            mv /opt/src/nomad-packs/* /opt/nomad-packs/
+            rmdir /opt/src/nomad-packs /opt/src
+            
+            rm nomad-packs.tar.gz
+            
+            echo "Pack files transferred successfully"
+            ls -la /opt/nomad-packs/
+          EOF
+
+      - name: Generate Nomad Pack plans
+        run: |
+          echo "Generating Nomad Pack plans..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            # Set Nomad environment variables
+            export NOMAD_ADDR="${{ env.NOMAD_ADDR }}"
+            export NOMAD_NAMESPACE="${{ env.NOMAD_NAMESPACE }}"
+            export NOMAD_REGION="${{ env.NOMAD_REGION }}"
+            
+            cd /opt/nomad-packs
+            
+            echo "=== Nomad Pack Plan Generation ==="
+            echo "Environment: ${{ needs.validate-deployment.outputs.environment }}"
+            echo "Packs to plan: ${{ needs.validate-deployment.outputs.pack-list }}"
+            echo ""
+            
+            IFS=',' read -ra PACKS <<< "${{ needs.validate-deployment.outputs.pack-list }}"
+            for pack in "${PACKS[@]}"; do
+              echo "--- Planning pack: $pack ---"
+              
+              if [[ -d "$pack" ]]; then
+                cd "$pack"
+                
+                # Create environment-specific variable file if it doesn't exist
+                VAR_FILE="vars-${{ needs.validate-deployment.outputs.environment }}.hcl"
+                if [[ ! -f "$VAR_FILE" ]]; then
+                  echo "Creating default variable file: $VAR_FILE"
+                  cat > "$VAR_FILE" << VARFILE
+          # Environment-specific variables for ${{ needs.validate-deployment.outputs.environment }}
+          environment = "${{ needs.validate-deployment.outputs.environment }}"
+          
+          # Pack-specific configuration
+          job_name = "${pack}-${{ needs.validate-deployment.outputs.environment }}"
+          datacenters = ["dc1"]
+          namespace = "${{ env.NOMAD_NAMESPACE }}"
+          region = "${{ env.NOMAD_REGION }}"
+          VARFILE
+                fi
+                
+                echo "Planning with variable file: $VAR_FILE"
+                cat "$VAR_FILE"
+                
+                echo ""
+                echo "Generating plan..."
+                
+                # Run nomad-pack plan
+                if nomad-pack plan . --var-file="$VAR_FILE"; then
+                  echo "✅ Plan generated successfully for $pack"
+                else
+                  echo "❌ Plan generation failed for $pack"
+                  exit 1
+                fi
+                
+                cd ..
+                echo ""
+              else
+                echo "❌ Pack directory not found: $pack"
+                exit 1
+              fi
+            done
+            
+            echo "✅ All pack plans generated successfully"
+          EOF
+
+  # Job 4: Nomad Pack deployment (run)
+  nomad-pack-deploy:
+    runs-on: ubuntu-latest
+    needs: [validate-deployment, nomad-pack-plan]
+    if: inputs.pack_action == 'run' && needs.nomad-pack-plan.result == 'success'
+    environment: ${{ needs.validate-deployment.outputs.environment }}
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Manual approval for production
+        if: inputs.environment == 'production' && inputs.auto_approve != true
+        run: |
+          echo "🔒 PRODUCTION DEPLOYMENT APPROVAL REQUIRED 🔒"
+          echo "=============================================="
+          echo ""
+          echo "This deployment will affect the production environment."
+          echo "Please review the plans and approve this deployment."
+          echo ""
+          echo "Packs to deploy: ${{ needs.validate-deployment.outputs.pack-list }}"
+          echo "Environment: ${{ needs.validate-deployment.outputs.environment }}"
+
+      - name: Deploy Nomad Packs
+        run: |
+          echo "Deploying Nomad Packs to remote server..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            # Set Nomad environment variables
+            export NOMAD_ADDR="${{ env.NOMAD_ADDR }}"
+            export NOMAD_NAMESPACE="${{ env.NOMAD_NAMESPACE }}"
+            export NOMAD_REGION="${{ env.NOMAD_REGION }}"
+            
+            cd /opt/nomad-packs
+            
+            echo "=== Nomad Pack Deployment ==="
+            echo "Environment: ${{ needs.validate-deployment.outputs.environment }}"
+            echo "Packs to deploy: ${{ needs.validate-deployment.outputs.pack-list }}"
+            echo "Strategy: ${{ needs.validate-deployment.outputs.deployment-strategy }}"
+            echo "Force deployment: ${{ inputs.force_deployment }}"
+            echo ""
+            
+            FORCE_FLAG=""
+            if [[ "${{ inputs.force_deployment }}" == "true" ]]; then
+              FORCE_FLAG="--force-count"
+            fi
+            
+            IFS=',' read -ra PACKS <<< "${{ needs.validate-deployment.outputs.pack-list }}"
+            
+            # Deploy packs based on strategy
+            if [[ "${{ needs.validate-deployment.outputs.deployment-strategy }}" == "sequential" ]]; then
+              echo "Using sequential deployment strategy..."
+              
+              for pack in "${PACKS[@]}"; do
+                echo "--- Deploying pack: $pack ---"
+                
+                if [[ -d "$pack" ]]; then
+                  cd "$pack"
+                  
+                  VAR_FILE="vars-${{ needs.validate-deployment.outputs.environment }}.hcl"
+                  
+                  echo "Deploying pack with timeout: ${{ inputs.deployment_timeout }}s"
+                  
+                  if timeout ${{ inputs.deployment_timeout }} nomad-pack run . --var-file="$VAR_FILE" $FORCE_FLAG; then
+                    echo "✅ Successfully deployed $pack"
+                    
+                    # Wait for deployment to stabilize
+                    echo "Waiting for deployment to stabilize..."
+                    sleep 30
+                    
+                    # Basic health check
+                    JOB_NAME=$(grep 'job_name.*=' "$VAR_FILE" | cut -d'"' -f2 || echo "${pack}-${{ needs.validate-deployment.outputs.environment }}")
+                    if nomad job status "$JOB_NAME" &>/dev/null; then
+                      echo "✅ Job $JOB_NAME is running"
+                    else
+                      echo "⚠️ Job $JOB_NAME status unknown"
+                    fi
+                  else
+                    echo "❌ Failed to deploy $pack"
+                    exit 1
+                  fi
+                  
+                  cd ..
+                  echo ""
+                else
+                  echo "❌ Pack directory not found: $pack"
+                  exit 1
+                fi
+              done
+            else
+              # Single pack deployment
+              pack="${PACKS[0]}"
+              echo "Deploying single pack: $pack"
+              
+              cd "$pack"
+              VAR_FILE="vars-${{ needs.validate-deployment.outputs.environment }}.hcl"
+              
+              if timeout ${{ inputs.deployment_timeout }} nomad-pack run . --var-file="$VAR_FILE" $FORCE_FLAG; then
+                echo "✅ Successfully deployed $pack"
+              else
+                echo "❌ Failed to deploy $pack"
+                exit 1
+              fi
+            fi
+            
+            echo ""
+            echo "=== Deployment Summary ==="
+            nomad job status || echo "No jobs found"
+          EOF
+
+      - name: Verify deployments
+        run: |
+          echo "Verifying Nomad Pack deployments..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            export NOMAD_ADDR="${{ env.NOMAD_ADDR }}"
+            
+            echo "=== Deployment Verification ==="
+            
+            # Get all running jobs
+            echo "Currently running jobs:"
+            nomad job status
+            
+            echo ""
+            echo "=== Job Details ==="
+            
+            # Check each deployed pack
+            IFS=',' read -ra PACKS <<< "${{ needs.validate-deployment.outputs.pack-list }}"
+            for pack in "${PACKS[@]}"; do
+              JOB_NAME="${pack}-${{ needs.validate-deployment.outputs.environment }}"
+              
+              echo "--- Checking job: $JOB_NAME ---"
+              if nomad job status "$JOB_NAME" &>/dev/null; then
+                nomad job status "$JOB_NAME"
+                
+                # Check allocations
+                echo "Allocations:"
+                nomad job allocs "$JOB_NAME" | head -5
+              else
+                echo "⚠️ Job $JOB_NAME not found or not running"
+              fi
+              echo ""
+            done
+            
+            echo "=== System Resource Usage ==="
+            nomad node status -verbose
+          EOF
+
+  # Job 5: Nomad Pack stop/destroy operations
+  nomad-pack-cleanup:
+    runs-on: ubuntu-latest
+    needs: [validate-deployment, prepare-nomad-environment]
+    if: inputs.pack_action == 'stop' || inputs.pack_action == 'destroy'
+    environment: ${{ needs.validate-deployment.outputs.environment }}
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Destruction safety check
+        if: inputs.pack_action == 'destroy'
+        run: |
+          echo "🚨 NOMAD PACK DESTRUCTION WARNING 🚨"
+          echo "====================================="
+          echo ""
+          echo "You are about to DESTROY Nomad Pack deployments!"
+          echo "Environment: ${{ needs.validate-deployment.outputs.environment }}"
+          echo "Packs: ${{ needs.validate-deployment.outputs.pack-list }}"
+          echo ""
+          
+          if [[ "${{ inputs.environment }}" == "production" ]]; then
+            echo "❌ PRODUCTION DESTRUCTION OPERATION"
+            echo "This will DESTROY PRODUCTION APPLICATIONS!"
+            echo ""
+          fi
+          
+          echo "This operation will:"
+          echo "  - Stop running jobs"
+          echo "  - Remove job definitions"
+          echo "  - Clean up associated resources"
+
+      - name: Execute pack cleanup
+        run: |
+          echo "Executing Nomad Pack cleanup..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            export NOMAD_ADDR="${{ env.NOMAD_ADDR }}"
+            export NOMAD_NAMESPACE="${{ env.NOMAD_NAMESPACE }}"
+            
+            echo "=== Nomad Pack Cleanup ==="
+            echo "Action: ${{ inputs.pack_action }}"
+            echo "Environment: ${{ needs.validate-deployment.outputs.environment }}"
+            echo "Packs: ${{ needs.validate-deployment.outputs.pack-list }}"
+            echo ""
+            
+            IFS=',' read -ra PACKS <<< "${{ needs.validate-deployment.outputs.pack-list }}"
+            
+            for pack in "${PACKS[@]}"; do
+              JOB_NAME="${pack}-${{ needs.validate-deployment.outputs.environment }}"
+              
+              echo "--- Processing pack: $pack (job: $JOB_NAME) ---"
+              
+              # Check if job exists
+              if nomad job status "$JOB_NAME" &>/dev/null; then
+                echo "Job $JOB_NAME found, proceeding with ${{ inputs.pack_action }}"
+                
+                if [[ "${{ inputs.pack_action }}" == "stop" ]]; then
+                  echo "Stopping job..."
+                  nomad job stop "$JOB_NAME"
+                  echo "✅ Job $JOB_NAME stopped"
+                  
+                elif [[ "${{ inputs.pack_action }}" == "destroy" ]]; then
+                  echo "Purging job..."
+                  nomad job stop -purge "$JOB_NAME"
+                  echo "✅ Job $JOB_NAME purged"
+                fi
+                
+                # Wait for cleanup
+                echo "Waiting for cleanup to complete..."
+                sleep 10
+                
+              else
+                echo "⚠️ Job $JOB_NAME not found or already stopped"
+              fi
+              
+              echo ""
+            done
+            
+            echo "=== Final Status ==="
+            nomad job status || echo "No jobs currently running"
+          EOF
+
+  # Job 6: Post-deployment reporting and cleanup
+  post-deployment:
+    runs-on: ubuntu-latest
+    needs: [validate-deployment, nomad-pack-plan, nomad-pack-deploy, nomad-pack-cleanup]
+    if: always()
+    steps:
+      - name: Generate deployment summary
+        run: |
+          echo "## Phase 6: Nomad Pack Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.validate-deployment.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Action: ${{ inputs.pack_action }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Packs: ${{ needs.validate-deployment.outputs.pack-list }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Strategy: ${{ needs.validate-deployment.outputs.deployment-strategy }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall status
+          PLAN_STATUS="${{ needs.nomad-pack-plan.result }}"
+          DEPLOY_STATUS="${{ needs.nomad-pack-deploy.result }}"
+          CLEANUP_STATUS="${{ needs.nomad-pack-cleanup.result }}"
+          
+          case "${{ inputs.pack_action }}" in
+            plan)
+              if [[ "$PLAN_STATUS" == "success" ]]; then
+                echo "✅ **Nomad Pack planning completed successfully**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "Plans have been generated for all specified packs." >> $GITHUB_STEP_SUMMARY
+                echo "Review the plans and run with 'run' action to deploy." >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ **Nomad Pack planning failed**" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            run)
+              if [[ "$DEPLOY_STATUS" == "success" ]]; then
+                echo "✅ **Nomad Pack deployment completed successfully**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "All specified packs have been deployed and are running." >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ **Nomad Pack deployment failed**" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            stop|destroy)
+              if [[ "$CLEANUP_STATUS" == "success" ]]; then
+                echo "✅ **Nomad Pack cleanup completed successfully**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "Specified packs have been stopped/destroyed as requested." >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ **Nomad Pack cleanup failed**" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+          esac
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Management Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into server" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check job status" >> $GITHUB_STEP_SUMMARY
+          echo "export NOMAD_ADDR=${{ env.NOMAD_ADDR }}" >> $GITHUB_STEP_SUMMARY
+          echo "nomad job status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View specific job" >> $GITHUB_STEP_SUMMARY
+          echo "nomad job status <job-name>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View job logs" >> $GITHUB_STEP_SUMMARY
+          echo "nomad alloc logs <alloc-id>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Pack management" >> $GITHUB_STEP_SUMMARY
+          echo "nomad-pack list" >> $GITHUB_STEP_SUMMARY
+          echo "nomad-pack status <pack-name>" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ inputs.pack_action }}" == "run" && "$DEPLOY_STATUS" == "success" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Service Access:" >> $GITHUB_STEP_SUMMARY
+            echo "Services should be accessible through Traefik at:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Traefik Dashboard**: http://cloudya.net:8080 (if deployed)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Vault UI**: http://cloudya.net:8200 (if deployed)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Nomad UI**: http://cloudya.net:4646" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Use SSH tunneling for secure access:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "ssh -L 8080:localhost:8080 -L 8200:localhost:8200 -L 4646:localhost:4646 ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa

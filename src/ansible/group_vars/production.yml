@@ -1,0 +1,59 @@
+# Production environment configuration
+---
+environment: production
+
+# Security settings for production (maximum security)
+consul_acl_enabled: true
+consul_acl_default_policy: "deny"
+docker_allow_privileged: false
+nomad_raw_exec_enabled: false
+
+# HashiCorp service versions for production
+consul_version: "{{ lookup('env', 'CONSUL_VERSION') | default('1.17.0', true) }}"
+nomad_version: "{{ lookup('env', 'NOMAD_VERSION') | default('1.7.2', true) }}"
+vault_version: "{{ lookup('env', 'VAULT_VERSION') | default('1.15.4', true) }}"
+
+# Service configuration
+consul_datacenter: dc1
+consul_port: 8500
+consul_log_level: ERROR
+
+nomad_datacenter: dc1
+nomad_region: global
+nomad_port: 4646
+nomad_log_level: ERROR
+
+# Network configuration
+consul_bind_addr: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+nomad_bind_addr: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+
+# Production-specific settings
+skip_security_hardening: false
+enable_debug_logging: false
+
+# Firewall settings for production (most restrictive)
+firewall_allow_ports:
+  - "22/tcp"    # SSH (consider changing default port)
+  - "443/tcp"   # HTTPS only
+  - "4646/tcp"  # Nomad HTTP (behind reverse proxy)
+  - "8500/tcp"  # Consul HTTP API (behind reverse proxy)
+  - "8200/tcp"  # Vault API (behind reverse proxy)
+
+# TLS settings for production
+consul_encrypt_verify_incoming: true
+consul_encrypt_verify_outgoing: true
+nomad_tls_enabled: true
+vault_tls_enabled: true
+
+# Backup and monitoring
+enable_backups: true
+enable_monitoring: true
+enable_alerting: true
+
+# Resource limits for production
+max_docker_containers: 100
+max_nomad_jobs: 50
+
+# High availability settings
+consul_bootstrap_expect: 3  # For HA setup
+nomad_bootstrap_expect: 3   # For HA setup

@@ -1,0 +1,410 @@
+name: Environment Matrix Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environments:
+        description: 'Environments to deploy (comma-separated)'
+        required: true
+        type: string
+        default: 'develop,staging'
+      deployment_phases:
+        description: 'Phases to execute'
+        required: true
+        type: choice
+        options:
+          - all
+          - bootstrap-only
+          - terraform-only
+          - nomad-packs-only
+        default: 'all'
+      parallel_execution:
+        description: 'Execute environments in parallel'
+        required: false
+        type: boolean
+        default: false
+      auto_approve:
+        description: 'Auto-approve all environments (dangerous for production)'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Perform dry run across all environments'
+        required: false
+        type: boolean
+        default: false
+      exclude_production:
+        description: 'Explicitly exclude production from matrix'
+        required: false
+        type: boolean
+        default: true
+  schedule:
+    # Run matrix deployment for dev/staging every night at 2 AM UTC
+    - cron: '0 2 * * *'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/environment-matrix-deployment.yml'
+
+env:
+  REMOTE_SERVER: "cloudya.net"
+  REMOTE_USER: "root"
+
+jobs:
+  # Job 1: Matrix preparation and validation
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.matrix.outputs.environments }}
+      strategy: ${{ steps.matrix.outputs.strategy }}
+      parallel: ${{ steps.matrix.outputs.parallel }}
+    steps:
+      - name: Setup environment matrix
+        id: matrix
+        run: |
+          # Determine environments based on trigger
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV_INPUT="${{ inputs.environments }}"
+            PARALLEL="${{ inputs.parallel_execution }}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            ENV_INPUT="develop,staging"
+            PARALLEL="false"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            ENV_INPUT="develop"
+            PARALLEL="false"
+          else
+            ENV_INPUT="develop"
+            PARALLEL="false"
+          fi
+          
+          # Parse and validate environments
+          IFS=',' read -ra ENV_ARRAY <<< "$ENV_INPUT"
+          VALID_ENVS=()
+          
+          for env in "${ENV_ARRAY[@]}"; do
+            env=$(echo "$env" | xargs)  # trim whitespace
+            case "$env" in
+              develop|staging|production)
+                # Check production exclusion
+                if [[ "$env" == "production" && "${{ inputs.exclude_production }}" == "true" ]]; then
+                  echo "⚠️ Production environment excluded by safety flag"
+                else
+                  VALID_ENVS+=("$env")
+                fi
+                ;;
+              *)
+                echo "❌ Invalid environment: $env"
+                exit 1
+                ;;
+            esac
+          done
+          
+          if [[ ${#VALID_ENVS[@]} -eq 0 ]]; then
+            echo "❌ No valid environments specified"
+            exit 1
+          fi
+          
+          # Create JSON array for matrix
+          ENV_JSON=$(printf '%s\n' "${VALID_ENVS[@]}" | jq -R . | jq -s .)
+          
+          # Determine strategy
+          if [[ ${#VALID_ENVS[@]} -gt 1 ]]; then
+            if [[ "$PARALLEL" == "true" ]]; then
+              STRATEGY="parallel"
+            else
+              STRATEGY="sequential"
+            fi
+          else
+            STRATEGY="single"
+          fi
+          
+          echo "environments=$ENV_JSON" >> $GITHUB_OUTPUT
+          echo "strategy=$STRATEGY" >> $GITHUB_OUTPUT
+          echo "parallel=$PARALLEL" >> $GITHUB_OUTPUT
+          
+          echo "Matrix Configuration:"
+          echo "  Environments: ${VALID_ENVS[*]}"
+          echo "  Strategy: $STRATEGY"
+          echo "  Parallel: $PARALLEL"
+          
+          # Production safety check
+          for env in "${VALID_ENVS[@]}"; do
+            if [[ "$env" == "production" ]]; then
+              echo ""
+              echo "🚨 PRODUCTION DEPLOYMENT IN MATRIX 🚨"
+              echo "======================================"
+              echo "Production environment is included in this matrix deployment!"
+              echo "Auto-approve: ${{ inputs.auto_approve }}"
+              echo "Dry-run: ${{ inputs.dry_run }}"
+              
+              if [[ "${{ inputs.auto_approve }}" == "true" && "${{ inputs.dry_run }}" != "true" ]]; then
+                echo "❌ AUTO-APPROVE ENABLED FOR PRODUCTION!"
+                echo "This is extremely dangerous and should be avoided!"
+                # In strict environments, you might want to fail here
+                # exit 1
+              fi
+            fi
+          done
+
+      - name: Validate matrix safety
+        run: |
+          ENV_COUNT=$(echo '${{ steps.matrix.outputs.environments }}' | jq length)
+          
+          echo "Environment Matrix Validation:"
+          echo "  Total environments: $ENV_COUNT"
+          echo "  Execution strategy: ${{ steps.matrix.outputs.strategy }}"
+          echo "  Deployment phases: ${{ inputs.deployment_phases || 'all' }}"
+          
+          # Check for risky combinations
+          if [[ $ENV_COUNT -gt 2 && "${{ steps.matrix.outputs.parallel }}" == "true" ]]; then
+            echo "⚠️ Warning: Parallel execution with $ENV_COUNT environments"
+            echo "This may overwhelm the target server or cause resource conflicts"
+          fi
+          
+          # Check production in matrix with auto-approve
+          if [[ '${{ steps.matrix.outputs.environments }}' == *"production"* && "${{ inputs.auto_approve }}" == "true" ]]; then
+            echo "🚨 CRITICAL WARNING: Production in matrix with auto-approve enabled!"
+            echo "This combination is extremely risky and should be avoided"
+          fi
+          
+          echo "✅ Matrix validation completed"
+
+  # Job 2: Sequential deployment strategy
+  deploy-sequential:
+    needs: prepare-matrix
+    if: needs.prepare-matrix.outputs.strategy == 'sequential' || needs.prepare-matrix.outputs.strategy == 'single'
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(needs.prepare-matrix.outputs.environments) }}
+      # Sequential execution: one environment at a time
+      max-parallel: 1
+    uses: ./.github/workflows/unified-deployment-orchestration.yml
+    with:
+      environment: ${{ matrix.environment }}
+      deployment_phases: ${{ inputs.deployment_phases || 'all' }}
+      auto_approve: ${{ inputs.auto_approve || false }}
+      dry_run: ${{ inputs.dry_run || false }}
+      continue_on_failure: false
+    secrets: inherit
+
+  # Job 3: Parallel deployment strategy  
+  deploy-parallel:
+    needs: prepare-matrix
+    if: needs.prepare-matrix.outputs.strategy == 'parallel'
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(needs.prepare-matrix.outputs.environments) }}
+      # Parallel execution: all environments simultaneously
+      fail-fast: false
+    uses: ./.github/workflows/unified-deployment-orchestration.yml
+    with:
+      environment: ${{ matrix.environment }}
+      deployment_phases: ${{ inputs.deployment_phases || 'all' }}
+      auto_approve: ${{ inputs.auto_approve || false }}
+      dry_run: ${{ inputs.dry_run || false }}
+      continue_on_failure: false
+    secrets: inherit
+
+  # Job 4: Cross-environment validation and reporting
+  validate-matrix-deployment:
+    runs-on: ubuntu-latest
+    needs: [prepare-matrix, deploy-sequential, deploy-parallel]
+    if: always()
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Cross-environment validation
+        if: inputs.dry_run != true
+        run: |
+          echo "Performing cross-environment validation..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Cross-Environment Deployment Validation ==="
+            echo "Matrix environments: ${{ needs.prepare-matrix.outputs.environments }}"
+            echo "Strategy: ${{ needs.prepare-matrix.outputs.strategy }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # Check deployment states for each environment
+            echo "=== Environment Status Summary ==="
+            ENVIRONMENTS=$(echo '${{ needs.prepare-matrix.outputs.environments }}' | jq -r '.[]')
+            
+            for env in $ENVIRONMENTS; do
+              echo "--- Environment: $env ---"
+              
+              STATE_FILE="/opt/infrastructure/state/deployment-complete"
+              if [[ -f "$STATE_FILE" ]]; then
+                # Check if this deployment matches the environment
+                DEPLOYED_ENV=$(jq -r '.environment' "$STATE_FILE" 2>/dev/null || echo "unknown")
+                if [[ "$DEPLOYED_ENV" == "$env" ]]; then
+                  echo "✅ Deployment state found for $env"
+                  jq -r '"  Deployment ID: " + .deployment_id' "$STATE_FILE" 2>/dev/null || true
+                  jq -r '"  Timestamp: " + .timestamp' "$STATE_FILE" 2>/dev/null || true
+                else
+                  echo "⚠️ Deployment state mismatch: expected $env, found $DEPLOYED_ENV"
+                fi
+              else
+                echo "❌ No deployment state found for $env"
+              fi
+              echo ""
+            done
+            
+            # System resource check after matrix deployment
+            echo "=== System Resources After Matrix Deployment ==="
+            echo "Load average: $(uptime | awk -F'load average:' '{print $2}')"
+            echo "Memory usage:"
+            free -h | grep -E "Mem|Swap"
+            echo "Disk usage:"
+            df -h / | tail -1
+            
+            # Service status
+            echo ""
+            echo "=== Service Status ==="
+            systemctl is-active consul nomad || true
+            
+            # Port usage
+            echo ""
+            echo "=== Active Service Ports ==="
+            netstat -tlnp | grep -E ":(4646|8500|8200|8080)" || echo "No relevant ports listening"
+            
+            echo ""
+            echo "=== Cross-Environment Validation Complete ==="
+          EOF
+
+      - name: Analyze deployment results
+        id: analyze
+        run: |
+          # Analyze results from both sequential and parallel jobs
+          SEQUENTIAL_RESULT="${{ needs.deploy-sequential.result }}"
+          PARALLEL_RESULT="${{ needs.deploy-parallel.result }}"
+          
+          OVERALL_RESULT="success"
+          TOTAL_ENVIRONMENTS=0
+          SUCCESSFUL_ENVIRONMENTS=0
+          FAILED_ENVIRONMENTS=0
+          
+          # Count environments
+          TOTAL_ENVIRONMENTS=$(echo '${{ needs.prepare-matrix.outputs.environments }}' | jq length)
+          
+          # Determine overall result based on strategy
+          if [[ "${{ needs.prepare-matrix.outputs.strategy }}" == "sequential" || "${{ needs.prepare-matrix.outputs.strategy }}" == "single" ]]; then
+            if [[ "$SEQUENTIAL_RESULT" == "success" ]]; then
+              SUCCESSFUL_ENVIRONMENTS=$TOTAL_ENVIRONMENTS
+            else
+              FAILED_ENVIRONMENTS=$TOTAL_ENVIRONMENTS
+              OVERALL_RESULT="failure"
+            fi
+          else
+            # Parallel strategy - check individual results
+            # Note: GitHub Actions doesn't provide easy access to individual matrix results
+            # We'll use a conservative approach and mark as failed if parallel job failed
+            if [[ "$PARALLEL_RESULT" == "success" ]]; then
+              SUCCESSFUL_ENVIRONMENTS=$TOTAL_ENVIRONMENTS
+            else
+              FAILED_ENVIRONMENTS=$TOTAL_ENVIRONMENTS
+              OVERALL_RESULT="failure"
+            fi
+          fi
+          
+          echo "overall-result=$OVERALL_RESULT" >> $GITHUB_OUTPUT
+          echo "total-environments=$TOTAL_ENVIRONMENTS" >> $GITHUB_OUTPUT
+          echo "successful-environments=$SUCCESSFUL_ENVIRONMENTS" >> $GITHUB_OUTPUT
+          echo "failed-environments=$FAILED_ENVIRONMENTS" >> $GITHUB_OUTPUT
+
+      - name: Generate matrix deployment summary
+        run: |
+          echo "# 🚀 Environment Matrix Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Matrix Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environments**: $(echo '${{ needs.prepare-matrix.outputs.environments }}' | jq -r 'join(", ")')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Strategy**: ${{ needs.prepare-matrix.outputs.strategy }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Phases**: ${{ inputs.deployment_phases || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Parallel Execution**: ${{ needs.prepare-matrix.outputs.parallel }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto Approve**: ${{ inputs.auto_approve || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Overall status
+          if [[ "${{ steps.analyze.outputs.overall-result }}" == "success" ]]; then
+            echo "## ✅ Matrix Deployment: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All environments in the matrix were deployed successfully!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Matrix Deployment: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "One or more environments failed to deploy. Check individual workflow runs for details." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Environments**: ${{ steps.analyze.outputs.total-environments }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Successful**: ${{ steps.analyze.outputs.successful-environments }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Failed**: ${{ steps.analyze.outputs.failed-environments }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Environment-specific results
+          echo "## Environment Details" >> $GITHUB_STEP_SUMMARY
+          ENVIRONMENTS=$(echo '${{ needs.prepare-matrix.outputs.environments }}' | jq -r '.[]')
+          for env in $ENVIRONMENTS; do
+            echo "### Environment: $env" >> $GITHUB_STEP_SUMMARY
+            
+            case "${{ needs.prepare-matrix.outputs.strategy }}" in
+              sequential|single)
+                if [[ "${{ needs.deploy-sequential.result }}" == "success" ]]; then
+                  echo "- Status: ✅ Success" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "- Status: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+                fi
+                ;;
+              parallel)
+                # For parallel, we can't easily get individual results
+                # Show overall parallel job result
+                if [[ "${{ needs.deploy-parallel.result }}" == "success" ]]; then
+                  echo "- Status: ✅ Success (parallel batch)" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "- Status: ❌ Failed (parallel batch)" >> $GITHUB_STEP_SUMMARY
+                fi
+                ;;
+            esac
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔧 Management Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into the server" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check deployment states for all environments" >> $GITHUB_STEP_SUMMARY
+          echo "find /opt/infrastructure/state -name '*deployment*' -exec cat {} \\;" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+          echo "systemctl status consul nomad" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check system resources" >> $GITHUB_STEP_SUMMARY
+          echo "uptime && free -h && df -h" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## 📅 Scheduled Deployment" >> $GITHUB_STEP_SUMMARY
+            echo "This deployment was triggered by the nightly schedule." >> $GITHUB_STEP_SUMMARY
+            echo "It helps ensure development and staging environments stay up-to-date." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Set workflow conclusion
+        if: steps.analyze.outputs.overall-result != 'success'
+        run: |
+          echo "::error::Matrix deployment failed - check individual environment deployments"
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa

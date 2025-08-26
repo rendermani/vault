@@ -1,0 +1,666 @@
+name: Phase 3 - Terraform Configuration Apply (Fixed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      terraform_action:
+        description: 'Terraform action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'plan'
+      auto_approve:
+        description: 'Auto-approve Terraform apply (use with caution)'
+        required: false
+        type: boolean
+        default: false
+      target_resources:
+        description: 'Target specific resources (comma-separated)'
+        required: false
+        type: string
+        default: ''
+      refresh_state:
+        description: 'Refresh Terraform state before operation'
+        required: false
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      terraform_action:
+        required: true
+        type: string
+      auto_approve:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      TERRAFORM_API_TOKEN:
+        required: false
+      HETZNER_API_TOKEN:
+        required: false
+      CONSUL_HTTP_TOKEN:
+        required: false
+      VAULT_TOKEN:
+        required: false
+
+env:
+  # Terraform Configuration
+  TF_VERSION: "1.6.6"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_CLI_ARGS: "-no-color"
+  
+  # Remote Server Configuration - Use secrets for security
+  REMOTE_SERVER: ${{ secrets.REMOTE_SERVER || 'cloudya.net' }}
+  REMOTE_USER: ${{ secrets.REMOTE_USER || 'root' }}
+  
+  # HashiCorp Service Addresses
+  CONSUL_ADDRESS: ${{ secrets.CONSUL_ADDRESS || 'cloudya.net:8500' }}
+  NOMAD_ADDRESS: ${{ secrets.NOMAD_ADDRESS || 'cloudya.net:4646' }}
+  VAULT_ADDRESS: ${{ secrets.VAULT_ADDRESS || 'cloudya.net:8200' }}
+  
+jobs:
+  # Job 1: Terraform setup and validation
+  terraform-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.setup.outputs.environment }}
+      working-directory: ${{ steps.setup.outputs.working-directory }}
+      state-key: ${{ steps.setup.outputs.state-key }}
+      plan-file: ${{ steps.setup.outputs.plan-file }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform variables
+        id: setup
+        run: |
+          ENV="${{ inputs.environment }}"
+          WORK_DIR="src/terraform/environments/$ENV"
+          STATE_KEY="cloudya-$ENV.tfstate"
+          PLAN_FILE="terraform-$ENV.plan"
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "working-directory=$WORK_DIR" >> $GITHUB_OUTPUT
+          echo "state-key=$STATE_KEY" >> $GITHUB_OUTPUT
+          echo "plan-file=$PLAN_FILE" >> $GITHUB_OUTPUT
+          
+          echo "Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Working Directory: $WORK_DIR"
+          echo "  State Key: $STATE_KEY"
+          echo "  Plan File: $PLAN_FILE"
+
+      - name: Create environment-specific Terraform configuration
+        run: |
+          mkdir -p "${{ steps.setup.outputs.working-directory }}"
+          
+          # Create environment-specific main.tf
+          cat > "${{ steps.setup.outputs.working-directory }}/main.tf" << 'EOF'
+          # Terraform configuration for ${{ inputs.environment }} environment
+          terraform {
+            required_version = ">= 1.6"
+            required_providers {
+              vault = {
+                source  = "hashicorp/vault"
+                version = "~> 3.20"
+              }
+              nomad = {
+                source  = "hashicorp/nomad"
+                version = "~> 2.0"
+              }
+              consul = {
+                source  = "hashicorp/consul"
+                version = "~> 2.20"
+              }
+              local = {
+                source  = "hashicorp/local"
+                version = "~> 2.0"
+              }
+            }
+            
+            backend "consul" {
+              address = "${{ env.CONSUL_ADDRESS }}"
+              scheme  = "http"
+              path    = "terraform/state/${{ inputs.environment }}/vault-infrastructure"
+              gzip    = true
+            }
+          }
+          
+          # Provider configurations with environment-specific settings
+          provider "vault" {
+            address          = "http://${{ env.VAULT_ADDRESS }}"
+            skip_tls_verify  = true
+            # Token will be provided via environment variable
+          }
+          
+          provider "nomad" {
+            address   = "http://${{ env.NOMAD_ADDRESS }}"
+            region    = "global"
+          }
+          
+          provider "consul" {
+            address    = "${{ env.CONSUL_ADDRESS }}"
+            datacenter = "dc1"
+          }
+          
+          # Local values for environment
+          locals {
+            environment = "${{ inputs.environment }}"
+            server_ip   = "${{ env.REMOTE_SERVER }}"
+            
+            common_tags = {
+              Environment = "${{ inputs.environment }}"
+              ManagedBy   = "terraform"
+              Project     = "vault-infrastructure"
+            }
+          }
+          
+          # Environment configuration file
+          resource "local_file" "environment_config" {
+            content = templatefile("${path.root}/../../templates/environment.tpl", {
+              environment = local.environment
+              server_ip   = local.server_ip
+              timestamp   = timestamp()
+              vault_addr  = "http://${{ env.VAULT_ADDRESS }}"
+              nomad_addr  = "http://${{ env.NOMAD_ADDRESS }}"
+              consul_addr = "http://${{ env.CONSUL_ADDRESS }}"
+            })
+            filename = "${path.module}/generated/environment-${local.environment}.yaml"
+          }
+          
+          # Vault KV v2 Secrets Engines
+          module "vault_kv" {
+            source = "../../modules/vault-kv"
+            
+            kv_engines = {
+              "app-secrets-${{ inputs.environment }}" = {
+                description = "Application secrets for ${{ inputs.environment }}"
+                max_versions = 5
+                cas_required = true
+              }
+              "infrastructure-${{ inputs.environment }}" = {
+                description = "Infrastructure secrets for ${{ inputs.environment }}"
+                max_versions = 10
+                cas_required = true
+              }
+            }
+            
+            environment = local.environment
+            tags = local.common_tags
+          }
+          
+          # AppRole authentication for environment
+          module "vault_approle" {
+            source = "../../modules/vault-approle"
+            
+            approles = {
+              "nomad-${{ inputs.environment }}" = {
+                token_ttl      = 1800
+                token_max_ttl  = 3600
+                token_policies = ["nomad-policy-${{ inputs.environment }}"]
+                bind_secret_id = true
+              }
+              "consul-${{ inputs.environment }}" = {
+                token_ttl      = 1800
+                token_max_ttl  = 3600
+                token_policies = ["consul-policy-${{ inputs.environment }}"]
+                bind_secret_id = true
+              }
+            }
+            
+            environment = local.environment
+            tags = local.common_tags
+          }
+          
+          # Outputs
+          output "environment" {
+            value = local.environment
+          }
+          
+          output "server_ip" {
+            value = local.server_ip
+          }
+          
+          output "vault_kv_engines" {
+            value = module.vault_kv.engines
+          }
+          
+          output "vault_approles" {
+            value = module.vault_approle.approles
+            sensitive = true
+          }
+          EOF
+          
+          # Create environment-specific variables file
+          cat > "${{ steps.setup.outputs.working-directory }}/terraform.tfvars" << EOF
+          environment = "${{ inputs.environment }}"
+          project_name = "vault-infrastructure"
+          
+          # Service addresses
+          consul_address = "${{ env.CONSUL_ADDRESS }}"
+          nomad_address = "${{ env.NOMAD_ADDRESS }}"
+          vault_address = "${{ env.VAULT_ADDRESS }}"
+          
+          # Environment-specific settings
+          consul_datacenter = "dc1"
+          EOF
+          
+          echo "✓ Environment-specific Terraform configuration created"
+
+  # Job 2: Production safety checks
+  production-safety-checks:
+    runs-on: ubuntu-latest
+    needs: terraform-setup
+    if: inputs.environment == 'production' && inputs.terraform_action == 'apply'
+    steps:
+      - name: Production safety validation
+        run: |
+          echo "🚨 PRODUCTION TERRAFORM APPLY WARNING 🚨"
+          echo "=========================================="
+          echo ""
+          echo "You are about to apply Terraform changes to PRODUCTION!"
+          echo "This may modify critical infrastructure components."
+          echo ""
+          
+          if [[ "${{ inputs.auto_approve }}" == "true" ]]; then
+            echo "Auto-approve is ENABLED for production!"
+            echo "This is EXTREMELY DANGEROUS and not recommended."
+            echo ""
+            echo "Production changes should be:"
+            echo "1. Thoroughly reviewed by the team"
+            echo "2. Tested in staging environment first"
+            echo "3. Applied during maintenance windows"
+            echo "4. Monitored continuously during application"
+            echo ""
+            
+            echo "⚠️ WARNING: Proceeding with auto-approve in production"
+          else
+            echo "✓ Manual approval will be required"
+          fi
+
+      - name: Check maintenance window (production only)
+        if: inputs.environment == 'production'
+        run: |
+          # Check if we're in maintenance window (customize as needed)
+          CURRENT_HOUR=$(date +%H)
+          
+          # Example: Maintenance window between 2 AM and 4 AM UTC
+          if [[ $CURRENT_HOUR -ge 2 && $CURRENT_HOUR -lt 4 ]]; then
+            echo "✓ Currently in maintenance window (2-4 AM UTC)"
+          else
+            echo "⚠️ Not in maintenance window (current hour: ${CURRENT_HOUR} UTC)"
+            echo "Consider scheduling production changes during maintenance window (2-4 AM UTC)"
+          fi
+
+  # Job 3: Terraform plan
+  terraform-plan:
+    runs-on: ubuntu-latest
+    needs: [terraform-setup, production-safety-checks]
+    if: always() && needs.terraform-setup.result == 'success' && (needs.production-safety-checks.result == 'success' || needs.production-safety-checks.result == 'skipped')
+    environment: ${{ needs.terraform-setup.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      
+      - name: Install and configure HashiCorp tools
+        run: |
+          # Install HashiCorp APT repository
+          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt update
+          
+          # Install specific versions to match server
+          sudo apt install -y consul=${{ vars.CONSUL_VERSION || '1.17.0' }}-1
+          sudo apt install -y nomad=${{ vars.NOMAD_VERSION || '1.7.2' }}-1
+          sudo apt install -y vault=${{ vars.VAULT_VERSION || '1.15.4' }}-1
+          
+          # Verify installations
+          echo "=== Tool Versions ==="
+          terraform version
+          consul version
+          nomad version
+          vault version
+          echo "====================="
+
+      - name: Set up SSH key for remote operations
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for HashiCorp services to be ready..."
+          
+          # Wait for Consul
+          timeout 60 bash -c 'until curl -s http://${{ env.CONSUL_ADDRESS }}/v1/status/leader; do echo "Waiting for Consul..."; sleep 5; done'
+          echo "✓ Consul is ready"
+          
+          # Wait for Nomad
+          timeout 60 bash -c 'until curl -s http://${{ env.NOMAD_ADDRESS }}/v1/status/leader; do echo "Waiting for Nomad..."; sleep 5; done'
+          echo "✓ Nomad is ready"
+          
+          # Wait for Vault (if unsealed)
+          if curl -s http://${{ env.VAULT_ADDRESS }}/v1/sys/health | grep -q '"sealed":false'; then
+            echo "✓ Vault is ready and unsealed"
+          else
+            echo "⚠️ Vault may be sealed or not ready - some operations may fail"
+          fi
+
+      - name: Terraform init
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          CONSUL_HTTP_ADDR: ${{ env.CONSUL_ADDRESS }}
+          CONSUL_HTTP_TOKEN: ${{ secrets.CONSUL_HTTP_TOKEN }}
+        run: |
+          echo "Initializing Terraform with Consul backend..."
+          
+          # Configure authentication if available
+          if [[ -n "${{ secrets.CONSUL_HTTP_TOKEN }}" ]]; then
+            export CONSUL_HTTP_TOKEN="${{ secrets.CONSUL_HTTP_TOKEN }}"
+            echo "✓ Using Consul authentication token"
+          fi
+          
+          terraform init -reconfigure -backend-config="address=${{ env.CONSUL_ADDRESS }}"
+          
+          echo "Terraform initialization complete"
+          terraform version
+
+      - name: Terraform validate
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Validating Terraform configuration..."
+          terraform validate
+
+      - name: Terraform format check
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Checking Terraform formatting..."
+          if ! terraform fmt -check -diff; then
+            echo "⚠️ Terraform files are not properly formatted"
+            echo "Running terraform fmt to fix formatting..."
+            terraform fmt -recursive
+          else
+            echo "✓ Terraform formatting is correct"
+          fi
+
+      - name: Terraform plan
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          TF_VAR_environment: ${{ needs.terraform-setup.outputs.environment }}
+          TF_VAR_consul_address: ${{ env.CONSUL_ADDRESS }}
+          TF_VAR_nomad_address: ${{ env.NOMAD_ADDRESS }}
+          TF_VAR_vault_address: ${{ env.VAULT_ADDRESS }}
+          CONSUL_HTTP_ADDR: ${{ env.CONSUL_ADDRESS }}
+          CONSUL_HTTP_TOKEN: ${{ secrets.CONSUL_HTTP_TOKEN }}
+          VAULT_ADDR: http://${{ env.VAULT_ADDRESS }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          NOMAD_ADDR: http://${{ env.NOMAD_ADDRESS }}
+        run: |
+          echo "Creating Terraform plan..."
+          
+          PLAN_ARGS=""
+          if [[ "${{ inputs.refresh_state }}" == "true" ]]; then
+            PLAN_ARGS="$PLAN_ARGS -refresh=true"
+          else
+            PLAN_ARGS="$PLAN_ARGS -refresh=false"
+          fi
+          
+          if [[ -n "${{ inputs.target_resources }}" ]]; then
+            IFS=',' read -ra TARGETS <<< "${{ inputs.target_resources }}"
+            for target in "${TARGETS[@]}"; do
+              PLAN_ARGS="$PLAN_ARGS -target=$target"
+            done
+            echo "Targeting specific resources: ${{ inputs.target_resources }}"
+          fi
+          
+          terraform plan $PLAN_ARGS -out="${{ needs.terraform-setup.outputs.plan-file }}" -detailed-exitcode
+          PLAN_EXIT_CODE=$?
+          
+          # Exit code 0 = no changes, 1 = error, 2 = changes
+          if [[ $PLAN_EXIT_CODE -eq 0 ]]; then
+            echo "✓ No changes detected"
+          elif [[ $PLAN_EXIT_CODE -eq 2 ]]; then
+            echo "✓ Changes detected and planned"
+          else
+            echo "❌ Terraform plan failed"
+            exit 1
+          fi
+
+      - name: Upload Terraform plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ needs.terraform-setup.outputs.environment }}
+          path: ${{ needs.terraform-setup.outputs.working-directory }}/${{ needs.terraform-setup.outputs.plan-file }}
+          retention-days: 30
+
+      - name: Display plan summary
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "## Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.terraform-setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Action: ${{ inputs.terraform_action }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show plan in markdown format
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          terraform show -no-color "${{ needs.terraform-setup.outputs.plan-file }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # Job 4: Terraform apply (conditional)
+  terraform-apply:
+    runs-on: ubuntu-latest
+    needs: [terraform-setup, terraform-plan]
+    if: inputs.terraform_action == 'apply' && needs.terraform-plan.result == 'success'
+    environment: ${{ needs.terraform-setup.outputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Install HashiCorp tools
+        run: |
+          # Install HashiCorp APT repository
+          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt update
+          sudo apt install -y consul=${{ vars.CONSUL_VERSION || '1.17.0' }}-1
+          sudo apt install -y nomad=${{ vars.NOMAD_VERSION || '1.7.2' }}-1
+          sudo apt install -y vault=${{ vars.VAULT_VERSION || '1.15.4' }}-1
+
+      - name: Set up SSH key for remote operations
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Download Terraform plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ needs.terraform-setup.outputs.environment }}
+          path: ${{ needs.terraform-setup.outputs.working-directory }}
+
+      - name: Terraform init
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          CONSUL_HTTP_ADDR: ${{ env.CONSUL_ADDRESS }}
+          CONSUL_HTTP_TOKEN: ${{ secrets.CONSUL_HTTP_TOKEN }}
+        run: |
+          echo "Re-initializing Terraform..."
+          terraform init -reconfigure -backend-config="address=${{ env.CONSUL_ADDRESS }}"
+
+      - name: Manual approval checkpoint (production)
+        if: inputs.environment == 'production' && inputs.auto_approve != true
+        run: |
+          echo "🔒 PRODUCTION MANUAL APPROVAL REQUIRED 🔒"
+          echo "========================================"
+          echo ""
+          echo "This is a production Terraform apply operation."
+          echo "Manual approval is required before proceeding."
+          echo ""
+          echo "Please review the plan and approve this deployment in the GitHub UI."
+
+      - name: Terraform apply
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        env:
+          TF_VAR_environment: ${{ needs.terraform-setup.outputs.environment }}
+          TF_VAR_consul_address: ${{ env.CONSUL_ADDRESS }}
+          TF_VAR_nomad_address: ${{ env.NOMAD_ADDRESS }}
+          TF_VAR_vault_address: ${{ env.VAULT_ADDRESS }}
+          CONSUL_HTTP_ADDR: ${{ env.CONSUL_ADDRESS }}
+          CONSUL_HTTP_TOKEN: ${{ secrets.CONSUL_HTTP_TOKEN }}
+          VAULT_ADDR: http://${{ env.VAULT_ADDRESS }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          NOMAD_ADDR: http://${{ env.NOMAD_ADDRESS }}
+        run: |
+          echo "Applying Terraform plan..."
+          
+          if [[ "${{ inputs.auto_approve }}" == "true" ]]; then
+            echo "Auto-applying with plan file..."
+            terraform apply -auto-approve "${{ needs.terraform-setup.outputs.plan-file }}"
+          else
+            echo "Applying with confirmation..."
+            terraform apply "${{ needs.terraform-setup.outputs.plan-file }}"
+          fi
+
+      - name: Terraform output
+        working-directory: ${{ needs.terraform-setup.outputs.working-directory }}
+        run: |
+          echo "Terraform outputs:"
+          terraform output -json > terraform-outputs.json
+          cat terraform-outputs.json | jq .
+
+      - name: Upload Terraform state and outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state-${{ needs.terraform-setup.outputs.environment }}
+          path: |
+            ${{ needs.terraform-setup.outputs.working-directory }}/terraform-outputs.json
+          retention-days: 90
+
+      - name: Configure remote server with Terraform outputs
+        run: |
+          echo "Configuring remote server with Terraform outputs..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            # Create terraform outputs directory
+            mkdir -p /opt/infrastructure/terraform-outputs
+            mkdir -p /opt/infrastructure/state
+            
+            echo "Terraform configuration applied successfully"
+            echo "Environment: ${{ needs.terraform-setup.outputs.environment }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            
+            # Create state marker
+            cat > /opt/infrastructure/state/terraform-applied << 'STATE_MARKER'
+          {
+            "phase": "terraform-config",
+            "environment": "${{ needs.terraform-setup.outputs.environment }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run": "${{ github.run_id }}",
+            "commit": "${{ github.sha }}",
+            "terraform_action": "${{ inputs.terraform_action }}"
+          }
+          STATE_MARKER
+          EOF
+
+  # Job 5: Post-terraform validation and cleanup
+  post-terraform:
+    runs-on: ubuntu-latest
+    needs: [terraform-setup, terraform-plan, terraform-apply]
+    if: always()
+    steps:
+      - name: Generate Terraform summary
+        run: |
+          echo "## Phase 3: Terraform Configuration Summary (Fixed)" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.terraform-setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Action: ${{ inputs.terraform_action }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Auto Approve: ${{ inputs.auto_approve }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall status
+          PLAN_STATUS="${{ needs.terraform-plan.result }}"
+          APPLY_STATUS="${{ needs.terraform-apply.result }}"
+          
+          echo "### Key Improvements in Fixed Version:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Proper HashiCorp tool installation**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Consul backend for state management**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Environment-specific configurations**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Secure secrets management**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Service readiness checks**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Proper authentication handling**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ inputs.terraform_action }}" == "plan" ]]; then
+            if [[ "$PLAN_STATUS" == "success" ]]; then
+              echo "✅ **Terraform plan completed successfully**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "The plan has been generated with proper state management." >> $GITHUB_STEP_SUMMARY
+              echo "State is stored securely in Consul backend." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Terraform plan failed**" >> $GITHUB_STEP_SUMMARY
+            fi
+          elif [[ "${{ inputs.terraform_action }}" == "apply" ]]; then
+            if [[ "$APPLY_STATUS" == "success" ]]; then
+              echo "✅ **Terraform apply completed successfully**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Infrastructure changes have been applied securely." >> $GITHUB_STEP_SUMMARY
+              echo "State is persisted in Consul for team collaboration." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Terraform apply failed**" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ inputs.terraform_action }}" == "apply" && "$APPLY_STATUS" == "success" ]]; then
+            echo "1. **Phase 6**: Deploy applications with Nomad Packs workflow" >> $GITHUB_STEP_SUMMARY
+            echo "2. Verify infrastructure configuration on the remote server" >> $GITHUB_STEP_SUMMARY
+            echo "3. Check Vault KV engines and AppRoles are configured" >> $GITHUB_STEP_SUMMARY
+            echo "4. Run health checks and monitoring validation" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.terraform_action }}" == "plan" && "$PLAN_STATUS" == "success" ]]; then
+            echo "1. Review the generated plan carefully" >> $GITHUB_STEP_SUMMARY
+            echo "2. Run this workflow again with 'apply' action" >> $GITHUB_STEP_SUMMARY
+            echo "3. Consider running in staging environment first" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "1. Review job logs for error details" >> $GITHUB_STEP_SUMMARY
+            echo "2. Check HashiCorp service connectivity" >> $GITHUB_STEP_SUMMARY
+            echo "3. Verify secrets and authentication" >> $GITHUB_STEP_SUMMARY
+            echo "4. Re-run the workflow after fixes" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa

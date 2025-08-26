@@ -1,0 +1,48 @@
+# Development environment configuration
+---
+environment: develop
+
+# Security settings for development
+consul_acl_enabled: false
+consul_acl_default_policy: "allow"
+docker_allow_privileged: true
+nomad_raw_exec_enabled: true
+
+# HashiCorp service versions for development
+consul_version: "{{ lookup('env', 'CONSUL_VERSION') | default('1.17.0', true) }}"
+nomad_version: "{{ lookup('env', 'NOMAD_VERSION') | default('1.7.2', true) }}"
+vault_version: "{{ lookup('env', 'VAULT_VERSION') | default('1.15.4', true) }}"
+
+# Service configuration
+consul_datacenter: dc1
+consul_port: 8500
+consul_log_level: INFO
+
+nomad_datacenter: dc1
+nomad_region: global
+nomad_port: 4646
+nomad_log_level: INFO
+
+# Network configuration
+consul_bind_addr: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+nomad_bind_addr: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+
+# Development-specific settings
+skip_security_hardening: true
+enable_debug_logging: true
+
+# Firewall settings for development
+firewall_allow_ports:
+  - "22/tcp"    # SSH
+  - "80/tcp"    # HTTP
+  - "443/tcp"   # HTTPS
+  - "4646/tcp"  # Nomad HTTP
+  - "4647/tcp"  # Nomad RPC
+  - "4648/tcp"  # Nomad Serf
+  - "8300/tcp"  # Consul Server RPC
+  - "8301/tcp"  # Consul Serf LAN
+  - "8302/tcp"  # Consul Serf WAN
+  - "8500/tcp"  # Consul HTTP API
+  - "8502/tcp"  # Consul gRPC
+  - "8200/tcp"  # Vault API
+  - "8201/tcp"  # Vault Cluster

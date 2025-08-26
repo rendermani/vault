@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  progress-nginx:
+    build: .
+    container_name: vault-progress-server
+    ports:
+      - "8090:80"
+    volumes:
+      - /Users/mlautenschlager/cloudya/vault:/usr/share/nginx/html:ro
+    restart: unless-stopped
+    environment:
+      - NGINX_HOST=localhost
+      - NGINX_PORT=80
+    networks:
+      - progress-network
+
+networks:
+  progress-network:
+    driver: bridge

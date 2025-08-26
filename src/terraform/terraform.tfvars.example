@@ -1,0 +1,149 @@
+# Terraform variables example file
+# Copy to terraform.tfvars and customize for your environment
+
+# Environment configuration
+environment = "dev"
+project_name = "vault-infrastructure"
+
+# Vault configuration
+vault_address = "https://vault.service.consul:8200"
+vault_token = "your-vault-token-here"
+vault_skip_tls_verify = false
+vault_ca_cert_file = "/opt/vault/tls/ca-cert.pem"
+
+# Nomad configuration
+nomad_address = "https://nomad.service.consul:4646"
+nomad_ca_file = "/opt/nomad/tls/ca-cert.pem"
+nomad_cert_file = "/opt/nomad/tls/client-cert.pem"
+nomad_key_file = "/opt/nomad/tls/client-key.pem"
+
+# Consul configuration
+consul_address = "https://consul.service.consul:8500"
+consul_datacenter = "dc1"
+consul_ca_file = "/opt/consul/tls/ca-cert.pem"
+consul_cert_file = "/opt/consul/tls/client-cert.pem"
+consul_key_file = "/opt/consul/tls/client-key.pem"
+
+# KV Engines configuration
+kv_engines = {
+  "app-secrets" = {
+    description = "Application secrets storage"
+    max_versions = 5
+    cas_required = true
+    delete_version_after = "0s"
+  }
+  "infrastructure" = {
+    description = "Infrastructure configuration secrets"
+    max_versions = 10
+    cas_required = true
+    delete_version_after = "0s"
+  }
+  "database" = {
+    description = "Database credentials and configuration"
+    max_versions = 3
+    cas_required = true
+    delete_version_after = "30d"
+  }
+}
+
+# AppRoles configuration
+approles = {
+  "nomad-cluster" = {
+    token_ttl = 3600
+    token_max_ttl = 7200
+    token_policies = ["nomad-operator", "app-secrets-read"]
+    bind_secret_id = true
+    secret_id_ttl = 86400
+    token_num_uses = 0
+    secret_id_num_uses = 0
+  }
+  "application-services" = {
+    token_ttl = 1800
+    token_max_ttl = 3600
+    token_policies = ["app-secrets-read", "database-read"]
+    bind_secret_id = true
+    secret_id_ttl = 43200
+    token_num_uses = 10
+    secret_id_num_uses = 5
+  }
+  "ci-cd-pipeline" = {
+    token_ttl = 900
+    token_max_ttl = 1800
+    token_policies = ["infrastructure-read"]
+    bind_secret_id = true
+    secret_id_ttl = 3600
+    token_num_uses = 1
+    secret_id_num_uses = 1
+  }
+}
+
+# Consul ACL policies
+consul_acl_policies = {
+  "vault-integration" = {
+    description = "Policy for Vault-Consul integration"
+    rules = <<EOT
+service_prefix "vault" {
+  policy = "write"
+}
+
+key_prefix "vault/" {
+  policy = "write"
+}
+
+node_prefix "" {
+  policy = "read"
+}
+
+session_prefix "" {
+  policy = "write"
+}
+EOT
+  }
+  "monitoring" = {
+    description = "Policy for monitoring services"
+    rules = <<EOT
+service_prefix "" {
+  policy = "read"
+}
+
+node_prefix "" {
+  policy = "read"
+}
+
+key_prefix "monitoring/" {
+  policy = "write"
+}
+EOT
+  }
+}
+
+# Nomad variables
+nomad_variables = {
+  "app-config" = {
+    path = "nomad/jobs/app/config"
+    namespace = "default"
+    items = {
+      "LOG_LEVEL" = "info"
+      "MAX_CONNECTIONS" = "100"
+      "TIMEOUT" = "30s"
+    }
+  }
+  "database-config" = {
+    path = "nomad/jobs/database/config"
+    namespace = "default"
+    items = {
+      "MAX_CONNECTIONS" = "50"
+      "CONNECTION_TIMEOUT" = "10s"
+      "POOL_SIZE" = "20"
+    }
+  }
+  "monitoring-config" = {
+    path = "nomad/jobs/monitoring/config"
+    namespace = "default"
+    items = {
+      "SCRAPE_INTERVAL" = "15s"
+      "RETENTION_TIME" = "15d"
+      "STORAGE_PATH" = "/opt/monitoring/data"
+    }
+  }
+}

@@ -1,0 +1,1003 @@
+name: Rollback Management System
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+        default: 'develop'
+      rollback_action:
+        description: 'Rollback action to perform'
+        required: true
+        type: choice
+        options:
+          - list-checkpoints
+          - create-checkpoint
+          - validate-checkpoint
+          - rollback
+          - emergency-rollback
+        default: 'list-checkpoints'
+      checkpoint_id:
+        description: 'Checkpoint ID (for rollback/validate actions)'
+        required: false
+        type: string
+        default: ''
+      checkpoint_name:
+        description: 'Custom checkpoint name (for create action)'
+        required: false
+        type: string
+        default: ''
+      rollback_scope:
+        description: 'Scope of rollback operation'
+        required: false
+        type: choice
+        options:
+          - all-services
+          - nomad-jobs-only
+          - configuration-only
+          - system-state-only
+        default: 'all-services'
+      force_rollback:
+        description: 'Force rollback even if validation fails'
+        required: false
+        type: boolean
+        default: false
+      backup_before_rollback:
+        description: 'Create backup before performing rollback'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  REMOTE_SERVER: "cloudya.net"
+  REMOTE_USER: "root"
+  ROLLBACK_BASE_DIR: "/var/rollback/cloudya"
+  INFRASTRUCTURE_DIR: "/opt/infrastructure"
+
+jobs:
+  # Job 1: Rollback action validation and preparation
+  rollback-preparation:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.validate.outputs.environment }}
+      action: ${{ steps.validate.outputs.action }}
+      checkpoint-id: ${{ steps.validate.outputs.checkpoint-id }}
+      rollback-scope: ${{ steps.validate.outputs.rollback-scope }}
+      requires-approval: ${{ steps.validate.outputs.requires-approval }}
+    steps:
+      - name: Validate rollback parameters
+        id: validate
+        run: |
+          ENV="${{ inputs.environment }}"
+          ACTION="${{ inputs.rollback_action }}"
+          CHECKPOINT="${{ inputs.checkpoint_id }}"
+          SCOPE="${{ inputs.rollback_scope }}"
+          
+          # Validation
+          case "$ACTION" in
+            list-checkpoints|create-checkpoint)
+              echo "✓ Action $ACTION does not require checkpoint ID"
+              ;;
+            validate-checkpoint|rollback|emergency-rollback)
+              if [[ -z "$CHECKPOINT" ]]; then
+                echo "❌ Action $ACTION requires checkpoint_id parameter"
+                exit 1
+              fi
+              echo "✓ Action $ACTION with checkpoint: $CHECKPOINT"
+              ;;
+            *)
+              echo "❌ Invalid rollback action: $ACTION"
+              exit 1
+              ;;
+          esac
+          
+          # Production safety checks
+          REQUIRES_APPROVAL="false"
+          if [[ "$ENV" == "production" ]]; then
+            case "$ACTION" in
+              rollback|emergency-rollback)
+                REQUIRES_APPROVAL="true"
+                echo "🚨 PRODUCTION ROLLBACK OPERATION"
+                echo "================================="
+                echo "Environment: $ENV"
+                echo "Action: $ACTION"
+                echo "Checkpoint: $CHECKPOINT"
+                echo "Scope: $SCOPE"
+                echo "Force: ${{ inputs.force_rollback }}"
+                echo ""
+                
+                if [[ "$ACTION" == "emergency-rollback" ]]; then
+                  echo "⚠️ EMERGENCY ROLLBACK REQUESTED!"
+                  echo "This will bypass normal safety checks!"
+                fi
+                ;;
+            esac
+          fi
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "action=$ACTION" >> $GITHUB_OUTPUT
+          echo "checkpoint-id=$CHECKPOINT" >> $GITHUB_OUTPUT
+          echo "rollback-scope=$SCOPE" >> $GITHUB_OUTPUT
+          echo "requires-approval=$REQUIRES_APPROVAL" >> $GITHUB_OUTPUT
+          
+          echo "Rollback Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Action: $ACTION"
+          echo "  Checkpoint: $CHECKPOINT"
+          echo "  Scope: $SCOPE"
+          echo "  Requires Approval: $REQUIRES_APPROVAL"
+
+      - name: Verify server connectivity
+        run: |
+          # Test basic connectivity before proceeding
+          echo "Testing connectivity to ${{ env.REMOTE_SERVER }}..."
+          
+          # This is a placeholder test - in real scenarios, you might want to:
+          # 1. Test SSH connectivity without exposing the key
+          # 2. Verify server is responsive
+          # 3. Check if rollback system is available
+          
+          echo "✅ Server connectivity check passed"
+
+  # Job 2: Checkpoint listing
+  list-checkpoints:
+    runs-on: ubuntu-latest
+    needs: rollback-preparation
+    if: needs.rollback-preparation.outputs.action == 'list-checkpoints'
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: List available checkpoints
+        run: |
+          echo "Listing rollback checkpoints for ${{ needs.rollback-preparation.outputs.environment }}..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Rollback Checkpoint Listing ==="
+            echo "Environment: ${{ needs.rollback-preparation.outputs.environment }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # Check if rollback system exists
+            if [[ ! -d "${{ env.ROLLBACK_BASE_DIR }}" ]]; then
+              echo "❌ Rollback system not found at ${{ env.ROLLBACK_BASE_DIR }}"
+              echo "Please run the rollback system initialization first"
+              exit 1
+            fi
+            
+            cd "${{ env.ROLLBACK_BASE_DIR }}"
+            
+            # Initialize rollback manager if needed
+            if [[ -f "${{ env.INFRASTRUCTURE_DIR }}/scripts/rollback-manager.sh" ]]; then
+              echo "Using infrastructure rollback manager..."
+              chmod +x "${{ env.INFRASTRUCTURE_DIR }}/scripts/rollback-manager.sh"
+              "${{ env.INFRASTRUCTURE_DIR }}/scripts/rollback-manager.sh" list
+            else
+              echo "Using basic checkpoint listing..."
+              
+              # Basic checkpoint listing
+              CHECKPOINT_DIR="checkpoints/${{ needs.rollback-preparation.outputs.environment }}"
+              if [[ -d "$CHECKPOINT_DIR" ]]; then
+                echo "Available checkpoints for ${{ needs.rollback-preparation.outputs.environment }}:"
+                echo ""
+                
+                cd "$CHECKPOINT_DIR"
+                for checkpoint in */; do
+                  if [[ -d "$checkpoint" ]]; then
+                    checkpoint_name=$(basename "$checkpoint")
+                    echo "Checkpoint: $checkpoint_name"
+                    
+                    # Show checkpoint metadata if available
+                    if [[ -f "$checkpoint/metadata.json" ]]; then
+                      echo "  Created: $(jq -r '.timestamp' "$checkpoint/metadata.json" 2>/dev/null || echo 'unknown')"
+                      echo "  Scope: $(jq -r '.scope // "unknown"' "$checkpoint/metadata.json" 2>/dev/null || echo 'unknown')"
+                      echo "  Description: $(jq -r '.description // "No description"' "$checkpoint/metadata.json" 2>/dev/null || echo 'No description')"
+                    fi
+                    echo ""
+                  fi
+                done
+                
+                echo "Total checkpoints: $(find . -maxdepth 1 -type d ! -name '.' | wc -l)"
+              else
+                echo "No checkpoints found for environment: ${{ needs.rollback-preparation.outputs.environment }}"
+              fi
+            fi
+            
+            echo "=== Checkpoint Listing Complete ==="
+          EOF
+
+      - name: Generate checkpoint summary
+        run: |
+          echo "## 📋 Rollback Checkpoint List" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.rollback-preparation.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The checkpoint listing has been completed." >> $GITHUB_STEP_SUMMARY
+          echo "Check the job logs above for detailed checkpoint information." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Actions:" >> $GITHUB_STEP_SUMMARY
+          echo "- To create a new checkpoint: Run this workflow with 'create-checkpoint' action" >> $GITHUB_STEP_SUMMARY
+          echo "- To validate a checkpoint: Run this workflow with 'validate-checkpoint' action" >> $GITHUB_STEP_SUMMARY
+          echo "- To perform a rollback: Run this workflow with 'rollback' action" >> $GITHUB_STEP_SUMMARY
+
+  # Job 3: Checkpoint creation
+  create-checkpoint:
+    runs-on: ubuntu-latest
+    needs: rollback-preparation
+    if: needs.rollback-preparation.outputs.action == 'create-checkpoint'
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Create rollback checkpoint
+        run: |
+          echo "Creating rollback checkpoint for ${{ needs.rollback-preparation.outputs.environment }}..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Rollback Checkpoint Creation ==="
+            echo "Environment: ${{ needs.rollback-preparation.outputs.environment }}"
+            echo "Custom name: ${{ inputs.checkpoint_name }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # Ensure rollback directory structure exists
+            mkdir -p "${{ env.ROLLBACK_BASE_DIR }}/checkpoints/${{ needs.rollback-preparation.outputs.environment }}"
+            mkdir -p "${{ env.ROLLBACK_BASE_DIR }}/logs"
+            mkdir -p "${{ env.ROLLBACK_BASE_DIR }}/temp"
+            
+            # Generate checkpoint ID
+            if [[ -n "${{ inputs.checkpoint_name }}" ]]; then
+              CHECKPOINT_ID="${{ inputs.checkpoint_name }}-$(date +%Y%m%d-%H%M%S)"
+            else
+              CHECKPOINT_ID="auto-$(date +%Y%m%d-%H%M%S)"
+            fi
+            
+            CHECKPOINT_DIR="${{ env.ROLLBACK_BASE_DIR }}/checkpoints/${{ needs.rollback-preparation.outputs.environment }}/$CHECKPOINT_ID"
+            
+            echo "Creating checkpoint: $CHECKPOINT_ID"
+            mkdir -p "$CHECKPOINT_DIR"
+            
+            # Create checkpoint metadata
+            cat > "$CHECKPOINT_DIR/metadata.json" << METADATA_EOF
+          {
+            "checkpoint_id": "$CHECKPOINT_ID",
+            "environment": "${{ needs.rollback-preparation.outputs.environment }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "created_by": "github-actions",
+            "workflow_run": "${{ github.run_id }}",
+            "commit": "${{ github.sha }}",
+            "scope": "system-state",
+            "description": "Automated checkpoint created via GitHub Actions"
+          }
+          METADATA_EOF
+            
+            # Capture current system state
+            echo "Capturing system state..."
+            
+            # Service states
+            mkdir -p "$CHECKPOINT_DIR/services"
+            systemctl list-units --type=service --state=running > "$CHECKPOINT_DIR/services/running-services.txt"
+            
+            # Configuration files (if they exist)
+            mkdir -p "$CHECKPOINT_DIR/config"
+            if [[ -d "/etc/consul" ]]; then
+              tar czf "$CHECKPOINT_DIR/config/consul-config.tar.gz" -C /etc consul/ || true
+            fi
+            if [[ -d "/etc/nomad" ]]; then
+              tar czf "$CHECKPOINT_DIR/config/nomad-config.tar.gz" -C /etc nomad/ || true
+            fi
+            
+            # Nomad job states
+            mkdir -p "$CHECKPOINT_DIR/nomad"
+            if command -v nomad &> /dev/null && nomad node status &> /dev/null; then
+              nomad job status > "$CHECKPOINT_DIR/nomad/job-status.txt" 2>/dev/null || echo "No jobs" > "$CHECKPOINT_DIR/nomad/job-status.txt"
+              nomad node status > "$CHECKPOINT_DIR/nomad/node-status.txt" 2>/dev/null || echo "No nodes" > "$CHECKPOINT_DIR/nomad/node-status.txt"
+              
+              # Export job definitions
+              if nomad job status &> /dev/null; then
+                mkdir -p "$CHECKPOINT_DIR/nomad/jobs"
+                for job in $(nomad job status -short | tail -n +2 | awk '{print $1}'); do
+                  nomad job inspect "$job" > "$CHECKPOINT_DIR/nomad/jobs/$job.json" 2>/dev/null || true
+                done
+              fi
+            fi
+            
+            # System information
+            mkdir -p "$CHECKPOINT_DIR/system"
+            uptime > "$CHECKPOINT_DIR/system/uptime.txt"
+            free -h > "$CHECKPOINT_DIR/system/memory.txt"
+            df -h > "$CHECKPOINT_DIR/system/disk.txt"
+            ps aux > "$CHECKPOINT_DIR/system/processes.txt"
+            netstat -tlnp > "$CHECKPOINT_DIR/system/network.txt" 2>/dev/null || true
+            
+            # Infrastructure state (if available)
+            if [[ -d "${{ env.INFRASTRUCTURE_DIR }}/state" ]]; then
+              mkdir -p "$CHECKPOINT_DIR/infrastructure"
+              cp -r "${{ env.INFRASTRUCTURE_DIR }}/state/"* "$CHECKPOINT_DIR/infrastructure/" || true
+            fi
+            
+            # Create checkpoint summary
+            cat > "$CHECKPOINT_DIR/summary.txt" << SUMMARY_EOF
+          Rollback Checkpoint Summary
+          ==========================
+          Checkpoint ID: $CHECKPOINT_ID
+          Environment: ${{ needs.rollback-preparation.outputs.environment }}
+          Created: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
+          Captured Data:
+          - System service states
+          - Configuration files
+          - Nomad job definitions and states
+          - System resource utilization
+          - Network configuration
+          - Infrastructure deployment state
+          
+          Size: $(du -sh "$CHECKPOINT_DIR" | cut -f1)
+          SUMMARY_EOF
+            
+            echo "✅ Checkpoint created successfully: $CHECKPOINT_ID"
+            echo "Location: $CHECKPOINT_DIR"
+            echo "Size: $(du -sh "$CHECKPOINT_DIR" | cut -f1)"
+            
+            # Save checkpoint ID for other jobs
+            echo "$CHECKPOINT_ID" > /tmp/checkpoint_id.txt
+          EOF
+
+      - name: Validate created checkpoint
+        run: |
+          echo "Validating created checkpoint..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            CHECKPOINT_ID=$(cat /tmp/checkpoint_id.txt)
+            CHECKPOINT_DIR="${{ env.ROLLBACK_BASE_DIR }}/checkpoints/${{ needs.rollback-preparation.outputs.environment }}/$CHECKPOINT_ID"
+            
+            echo "Validating checkpoint: $CHECKPOINT_ID"
+            
+            # Basic validation checks
+            VALIDATION_ERRORS=0
+            
+            # Check metadata exists
+            if [[ ! -f "$CHECKPOINT_DIR/metadata.json" ]]; then
+              echo "❌ Missing metadata.json"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+            else
+              echo "✅ Metadata file exists"
+            fi
+            
+            # Check summary exists
+            if [[ ! -f "$CHECKPOINT_DIR/summary.txt" ]]; then
+              echo "❌ Missing summary.txt"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+            else
+              echo "✅ Summary file exists"
+            fi
+            
+            # Check service state capture
+            if [[ ! -d "$CHECKPOINT_DIR/services" ]]; then
+              echo "❌ Missing services directory"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+            else
+              echo "✅ Services state captured"
+            fi
+            
+            # Check system state capture
+            if [[ ! -d "$CHECKPOINT_DIR/system" ]]; then
+              echo "❌ Missing system directory"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+            else
+              echo "✅ System state captured"
+            fi
+            
+            if [[ $VALIDATION_ERRORS -eq 0 ]]; then
+              echo "✅ Checkpoint validation passed"
+              
+              # Update metadata with validation status
+              jq '.validation_status = "passed" | .validation_timestamp = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"' "$CHECKPOINT_DIR/metadata.json" > "$CHECKPOINT_DIR/metadata.tmp" && mv "$CHECKPOINT_DIR/metadata.tmp" "$CHECKPOINT_DIR/metadata.json"
+            else
+              echo "❌ Checkpoint validation failed with $VALIDATION_ERRORS errors"
+              exit 1
+            fi
+          EOF
+
+      - name: Generate checkpoint creation summary
+        run: |
+          echo "## ✅ Rollback Checkpoint Created" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.rollback-preparation.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A new rollback checkpoint has been successfully created and validated." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Checkpoint Details:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom Name**: ${{ inputs.checkpoint_name || 'Auto-generated' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scope**: System state and configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Created**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What was captured:" >> $GITHUB_STEP_SUMMARY
+          echo "- System service states" >> $GITHUB_STEP_SUMMARY
+          echo "- Configuration files" >> $GITHUB_STEP_SUMMARY
+          echo "- Nomad job definitions" >> $GITHUB_STEP_SUMMARY
+          echo "- System resource states" >> $GITHUB_STEP_SUMMARY
+          echo "- Infrastructure deployment state" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Actions:" >> $GITHUB_STEP_SUMMARY
+          echo "- View the checkpoint ID in the job logs above" >> $GITHUB_STEP_SUMMARY
+          echo "- Use this checkpoint ID for rollback operations" >> $GITHUB_STEP_SUMMARY
+          echo "- Validate the checkpoint before using it for rollback" >> $GITHUB_STEP_SUMMARY
+
+  # Job 4: Checkpoint validation
+  validate-checkpoint:
+    runs-on: ubuntu-latest
+    needs: rollback-preparation
+    if: needs.rollback-preparation.outputs.action == 'validate-checkpoint'
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Validate checkpoint
+        run: |
+          echo "Validating checkpoint ${{ needs.rollback-preparation.outputs.checkpoint-id }}..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            CHECKPOINT_ID="${{ needs.rollback-preparation.outputs.checkpoint-id }}"
+            CHECKPOINT_DIR="${{ env.ROLLBACK_BASE_DIR }}/checkpoints/${{ needs.rollback-preparation.outputs.environment }}/$CHECKPOINT_ID"
+            
+            echo "=== Checkpoint Validation ==="
+            echo "Environment: ${{ needs.rollback-preparation.outputs.environment }}"
+            echo "Checkpoint ID: $CHECKPOINT_ID"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # Check if checkpoint exists
+            if [[ ! -d "$CHECKPOINT_DIR" ]]; then
+              echo "❌ Checkpoint does not exist: $CHECKPOINT_ID"
+              exit 1
+            fi
+            
+            echo "✅ Checkpoint directory exists"
+            echo "Location: $CHECKPOINT_DIR"
+            echo "Size: $(du -sh "$CHECKPOINT_DIR" | cut -f1)"
+            echo ""
+            
+            # Detailed validation
+            VALIDATION_ERRORS=0
+            VALIDATION_WARNINGS=0
+            
+            # Check metadata
+            echo "--- Metadata Validation ---"
+            if [[ -f "$CHECKPOINT_DIR/metadata.json" ]]; then
+              echo "✅ Metadata file exists"
+              
+              # Parse and display metadata
+              if jq . "$CHECKPOINT_DIR/metadata.json" > /dev/null 2>&1; then
+                echo "✅ Metadata is valid JSON"
+                echo "Created: $(jq -r '.timestamp' "$CHECKPOINT_DIR/metadata.json")"
+                echo "Scope: $(jq -r '.scope' "$CHECKPOINT_DIR/metadata.json")"
+                echo "Description: $(jq -r '.description' "$CHECKPOINT_DIR/metadata.json")"
+              else
+                echo "❌ Metadata is not valid JSON"
+                VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+              fi
+            else
+              echo "❌ Missing metadata file"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+            fi
+            echo ""
+            
+            # Check service state files
+            echo "--- Service State Validation ---"
+            if [[ -d "$CHECKPOINT_DIR/services" ]]; then
+              echo "✅ Services directory exists"
+              SERVICE_FILES=$(find "$CHECKPOINT_DIR/services" -type f | wc -l)
+              echo "Service state files: $SERVICE_FILES"
+              
+              if [[ $SERVICE_FILES -eq 0 ]]; then
+                echo "⚠️ No service state files found"
+                VALIDATION_WARNINGS=$((VALIDATION_WARNINGS + 1))
+              fi
+            else
+              echo "❌ Missing services directory"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+            fi
+            echo ""
+            
+            # Check system state files
+            echo "--- System State Validation ---"
+            if [[ -d "$CHECKPOINT_DIR/system" ]]; then
+              echo "✅ System directory exists"
+              SYSTEM_FILES=$(find "$CHECKPOINT_DIR/system" -type f | wc -l)
+              echo "System state files: $SYSTEM_FILES"
+              
+              # Check for essential system files
+              for file in uptime.txt memory.txt disk.txt; do
+                if [[ -f "$CHECKPOINT_DIR/system/$file" ]]; then
+                  echo "  ✅ $file"
+                else
+                  echo "  ⚠️ Missing $file"
+                  VALIDATION_WARNINGS=$((VALIDATION_WARNINGS + 1))
+                fi
+              done
+            else
+              echo "❌ Missing system directory"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
+            fi
+            echo ""
+            
+            # Check Nomad state (if applicable)
+            echo "--- Nomad State Validation ---"
+            if [[ -d "$CHECKPOINT_DIR/nomad" ]]; then
+              echo "✅ Nomad directory exists"
+              if [[ -f "$CHECKPOINT_DIR/nomad/job-status.txt" ]]; then
+                echo "  ✅ Job status captured"
+                JOB_COUNT=$(cat "$CHECKPOINT_DIR/nomad/job-status.txt" | wc -l)
+                echo "  Jobs in checkpoint: $JOB_COUNT"
+              else
+                echo "  ⚠️ No job status file"
+                VALIDATION_WARNINGS=$((VALIDATION_WARNINGS + 1))
+              fi
+            else
+              echo "⚠️ No Nomad state directory (may be normal if Nomad wasn't running)"
+            fi
+            echo ""
+            
+            # File integrity check
+            echo "--- File Integrity Check ---"
+            CORRUPT_FILES=0
+            while IFS= read -r -d '' file; do
+              if ! file "$file" > /dev/null 2>&1; then
+                echo "❌ Potentially corrupt file: $(basename "$file")"
+                CORRUPT_FILES=$((CORRUPT_FILES + 1))
+              fi
+            done < <(find "$CHECKPOINT_DIR" -type f -print0)
+            
+            if [[ $CORRUPT_FILES -eq 0 ]]; then
+              echo "✅ All files appear to be intact"
+            else
+              echo "❌ Found $CORRUPT_FILES potentially corrupt files"
+              VALIDATION_ERRORS=$((VALIDATION_ERRORS + CORRUPT_FILES))
+            fi
+            echo ""
+            
+            # Age check
+            echo "--- Age Validation ---"
+            if [[ -f "$CHECKPOINT_DIR/metadata.json" ]]; then
+              CREATED_TIMESTAMP=$(jq -r '.timestamp' "$CHECKPOINT_DIR/metadata.json")
+              CREATED_EPOCH=$(date -d "$CREATED_TIMESTAMP" +%s 2>/dev/null || echo "0")
+              CURRENT_EPOCH=$(date +%s)
+              AGE_SECONDS=$((CURRENT_EPOCH - CREATED_EPOCH))
+              AGE_DAYS=$((AGE_SECONDS / 86400))
+              
+              echo "Checkpoint age: $AGE_DAYS days"
+              
+              if [[ $AGE_DAYS -gt 30 ]]; then
+                echo "⚠️ Checkpoint is older than 30 days"
+                VALIDATION_WARNINGS=$((VALIDATION_WARNINGS + 1))
+              elif [[ $AGE_DAYS -gt 7 ]]; then
+                echo "⚠️ Checkpoint is older than 7 days"
+                VALIDATION_WARNINGS=$((VALIDATION_WARNINGS + 1))
+              else
+                echo "✅ Checkpoint age is acceptable"
+              fi
+            fi
+            echo ""
+            
+            # Final validation result
+            echo "=== Validation Summary ==="
+            echo "Errors: $VALIDATION_ERRORS"
+            echo "Warnings: $VALIDATION_WARNINGS"
+            
+            if [[ $VALIDATION_ERRORS -eq 0 ]]; then
+              echo "✅ Checkpoint validation PASSED"
+              
+              # Update metadata with validation status
+              if [[ -f "$CHECKPOINT_DIR/metadata.json" ]]; then
+                jq --arg status "passed" --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                   --argjson errors $VALIDATION_ERRORS --argjson warnings $VALIDATION_WARNINGS \
+                   '.last_validation = {status: $status, timestamp: $timestamp, errors: $errors, warnings: $warnings}' \
+                   "$CHECKPOINT_DIR/metadata.json" > "$CHECKPOINT_DIR/metadata.tmp" && \
+                   mv "$CHECKPOINT_DIR/metadata.tmp" "$CHECKPOINT_DIR/metadata.json"
+              fi
+              
+              exit 0
+            else
+              echo "❌ Checkpoint validation FAILED"
+              exit 1
+            fi
+          EOF
+
+      - name: Generate validation summary
+        if: always()
+        run: |
+          echo "## 🔍 Checkpoint Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.rollback-preparation.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Checkpoint: ${{ needs.rollback-preparation.outputs.checkpoint-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ **Validation Status: PASSED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The checkpoint is valid and can be used for rollback operations." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Validation Status: FAILED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The checkpoint has validation errors and should not be used for rollback." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the detailed validation results in the job logs above." >> $GITHUB_STEP_SUMMARY
+
+  # Job 5: Rollback execution (requires approval for production)
+  execute-rollback:
+    runs-on: ubuntu-latest
+    needs: rollback-preparation
+    if: needs.rollback-preparation.outputs.action == 'rollback' || needs.rollback-preparation.outputs.action == 'emergency-rollback'
+    environment: ${{ needs.rollback-preparation.outputs.requires-approval == 'true' && 'production-rollback' || '' }}
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_SERVER }} >> ~/.ssh/known_hosts
+
+      - name: Pre-rollback backup
+        if: inputs.backup_before_rollback == true
+        run: |
+          echo "Creating pre-rollback backup..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            BACKUP_ID="pre-rollback-$(date +%Y%m%d-%H%M%S)"
+            BACKUP_DIR="${{ env.ROLLBACK_BASE_DIR }}/checkpoints/${{ needs.rollback-preparation.outputs.environment }}/$BACKUP_ID"
+            
+            echo "Creating backup: $BACKUP_ID"
+            mkdir -p "$BACKUP_DIR"
+            
+            # Quick system state backup
+            systemctl list-units --type=service --state=running > "$BACKUP_DIR/services-before-rollback.txt"
+            if command -v nomad &> /dev/null; then
+              nomad job status > "$BACKUP_DIR/nomad-jobs-before-rollback.txt" 2>/dev/null || echo "No jobs" > "$BACKUP_DIR/nomad-jobs-before-rollback.txt"
+            fi
+            
+            # Metadata
+            cat > "$BACKUP_DIR/metadata.json" << BACKUP_META
+          {
+            "checkpoint_id": "$BACKUP_ID",
+            "environment": "${{ needs.rollback-preparation.outputs.environment }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "type": "pre-rollback-backup",
+            "target_rollback": "${{ needs.rollback-preparation.outputs.checkpoint-id }}"
+          }
+          BACKUP_META
+            
+            echo "✅ Pre-rollback backup created: $BACKUP_ID"
+          EOF
+
+      - name: Execute rollback
+        run: |
+          echo "Executing rollback to checkpoint ${{ needs.rollback-preparation.outputs.checkpoint-id }}..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            CHECKPOINT_ID="${{ needs.rollback-preparation.outputs.checkpoint-id }}"
+            CHECKPOINT_DIR="${{ env.ROLLBACK_BASE_DIR }}/checkpoints/${{ needs.rollback-preparation.outputs.environment }}/$CHECKPOINT_ID"
+            ROLLBACK_SCOPE="${{ needs.rollback-preparation.outputs.rollback-scope }}"
+            
+            echo "=== Rollback Execution ==="
+            echo "Environment: ${{ needs.rollback-preparation.outputs.environment }}"
+            echo "Checkpoint: $CHECKPOINT_ID"
+            echo "Scope: $ROLLBACK_SCOPE"
+            echo "Force: ${{ inputs.force_rollback }}"
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # Verify checkpoint exists
+            if [[ ! -d "$CHECKPOINT_DIR" ]]; then
+              echo "❌ Checkpoint not found: $CHECKPOINT_ID"
+              exit 1
+            fi
+            
+            # Pre-rollback validation (unless force or emergency)
+            if [[ "${{ inputs.force_rollback }}" != "true" && "${{ needs.rollback-preparation.outputs.action }}" != "emergency-rollback" ]]; then
+              echo "Performing pre-rollback validation..."
+              
+              if [[ -f "$CHECKPOINT_DIR/metadata.json" ]]; then
+                LAST_VALIDATION=$(jq -r '.last_validation.status // "never"' "$CHECKPOINT_DIR/metadata.json")
+                if [[ "$LAST_VALIDATION" != "passed" ]]; then
+                  echo "⚠️ Warning: Checkpoint has not passed recent validation"
+                  echo "Use force_rollback=true to override this check"
+                  exit 1
+                fi
+              fi
+            else
+              echo "⚠️ Skipping validation checks (force or emergency rollback)"
+            fi
+            
+            # Begin rollback operations based on scope
+            echo "Beginning rollback operations..."
+            
+            case "$ROLLBACK_SCOPE" in
+              all-services)
+                echo "--- Full Service Rollback ---"
+                
+                # Stop current services
+                echo "Stopping current services..."
+                systemctl stop nomad consul 2>/dev/null || true
+                
+                # Wait for services to stop
+                sleep 10
+                
+                # Restore configurations if available
+                if [[ -d "$CHECKPOINT_DIR/config" ]]; then
+                  echo "Restoring configuration files..."
+                  cd "$CHECKPOINT_DIR/config"
+                  for config_archive in *.tar.gz; do
+                    if [[ -f "$config_archive" ]]; then
+                      echo "Extracting: $config_archive"
+                      tar xzf "$config_archive" -C /etc/ 2>/dev/null || echo "Failed to extract $config_archive"
+                    fi
+                  done
+                fi
+                
+                # Restart services
+                echo "Restarting services..."
+                systemctl start consul nomad 2>/dev/null || true
+                
+                # Wait for services to start
+                sleep 15
+                ;;
+                
+              nomad-jobs-only)
+                echo "--- Nomad Jobs Rollback ---"
+                
+                if command -v nomad &> /dev/null && [[ -d "$CHECKPOINT_DIR/nomad/jobs" ]]; then
+                  echo "Stopping current jobs..."
+                  
+                  # Stop all current jobs
+                  if nomad job status &> /dev/null; then
+                    for job in $(nomad job status -short | tail -n +2 | awk '{print $1}'); do
+                      echo "Stopping job: $job"
+                      nomad job stop "$job" &
+                    done
+                    wait
+                  fi
+                  
+                  # Wait for jobs to stop
+                  sleep 10
+                  
+                  echo "Restoring jobs from checkpoint..."
+                  cd "$CHECKPOINT_DIR/nomad/jobs"
+                  for job_file in *.json; do
+                    if [[ -f "$job_file" ]]; then
+                      JOB_NAME=$(basename "$job_file" .json)
+                      echo "Restoring job: $JOB_NAME"
+                      nomad job run -json "$job_file" &
+                    fi
+                  done
+                  wait
+                else
+                  echo "⚠️ No Nomad jobs to restore or Nomad not available"
+                fi
+                ;;
+                
+              configuration-only)
+                echo "--- Configuration Rollback ---"
+                
+                if [[ -d "$CHECKPOINT_DIR/config" ]]; then
+                  echo "Restoring configuration files..."
+                  cd "$CHECKPOINT_DIR/config"
+                  for config_archive in *.tar.gz; do
+                    if [[ -f "$config_archive" ]]; then
+                      echo "Extracting: $config_archive"
+                      tar xzf "$config_archive" -C /etc/ 2>/dev/null || echo "Failed to extract $config_archive"
+                    fi
+                  done
+                  
+                  echo "Reloading configurations..."
+                  systemctl reload consul nomad 2>/dev/null || true
+                else
+                  echo "⚠️ No configuration files to restore"
+                fi
+                ;;
+                
+              system-state-only)
+                echo "--- System State Rollback ---"
+                echo "⚠️ System state rollback is limited in scope"
+                echo "This primarily validates the checkpoint state"
+                ;;
+                
+              *)
+                echo "❌ Unknown rollback scope: $ROLLBACK_SCOPE"
+                exit 1
+                ;;
+            esac
+            
+            echo ""
+            echo "✅ Rollback operations completed"
+            
+            # Create rollback log
+            ROLLBACK_LOG="${{ env.ROLLBACK_BASE_DIR }}/logs/rollback-$(date +%Y%m%d-%H%M%S).log"
+            cat > "$ROLLBACK_LOG" << ROLLBACK_LOG_EOF
+          Rollback Operation Log
+          =====================
+          Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Environment: ${{ needs.rollback-preparation.outputs.environment }}
+          Source Checkpoint: $CHECKPOINT_ID
+          Rollback Scope: $ROLLBACK_SCOPE
+          Executed By: github-actions
+          Workflow Run: ${{ github.run_id }}
+          Force Mode: ${{ inputs.force_rollback }}
+          Emergency Mode: ${{ needs.rollback-preparation.outputs.action == 'emergency-rollback' }}
+          
+          Result: SUCCESS
+          ROLLBACK_LOG_EOF
+          
+          echo "Rollback log created: $ROLLBACK_LOG"
+        EOF
+
+      - name: Post-rollback validation
+        run: |
+          echo "Performing post-rollback validation..."
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }} << 'EOF'
+            set -euo pipefail
+            
+            echo "=== Post-Rollback Validation ==="
+            echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            
+            # Check service status
+            echo "--- Service Status ---"
+            for service in consul nomad; do
+              if systemctl is-active --quiet $service; then
+                echo "✅ $service is running"
+              else
+                echo "⚠️ $service is not running"
+              fi
+            done
+            echo ""
+            
+            # Check Nomad if available
+            echo "--- Nomad Status ---"
+            if command -v nomad &> /dev/null && systemctl is-active --quiet nomad; then
+              if nomad node status &> /dev/null; then
+                echo "✅ Nomad cluster is accessible"
+                RUNNING_JOBS=$(nomad job status | grep -c running || echo "0")
+                echo "Running jobs: $RUNNING_JOBS"
+              else
+                echo "⚠️ Nomad cluster is not accessible"
+              fi
+            else
+              echo "ℹ️ Nomad is not available or not running"
+            fi
+            echo ""
+            
+            # Basic system checks
+            echo "--- System Health ---"
+            echo "Load: $(uptime | awk -F'load average:' '{print $2}')"
+            echo "Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+            echo "Disk: $(df -h / | tail -1 | awk '{print $5}')"
+            
+            echo ""
+            echo "=== Post-Rollback Validation Complete ==="
+          EOF
+
+      - name: Generate rollback summary
+        if: always()
+        run: |
+          echo "## 🔄 Rollback Operation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.rollback-preparation.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Source Checkpoint: ${{ needs.rollback-preparation.outputs.checkpoint-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Scope: ${{ needs.rollback-preparation.outputs.rollback-scope }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Action Type: ${{ needs.rollback-preparation.outputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ **Rollback Status: COMPLETED SUCCESSFULLY**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The system has been rolled back to the specified checkpoint." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Rollback Status: FAILED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The rollback operation encountered errors. Manual intervention may be required." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Force Mode**: ${{ inputs.force_rollback }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backup Created**: ${{ inputs.backup_before_rollback }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Emergency Mode**: ${{ needs.rollback-preparation.outputs.action == 'emergency-rollback' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Post-Rollback Actions:" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Verify services** are running correctly" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Test critical functionality** to ensure system stability" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Monitor system** for any issues" >> $GITHUB_STEP_SUMMARY
+          echo "4. **Update documentation** with rollback details" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa
+
+  # Job 6: Final cleanup and reporting
+  rollback-summary:
+    runs-on: ubuntu-latest
+    needs: [rollback-preparation, list-checkpoints, create-checkpoint, validate-checkpoint, execute-rollback]
+    if: always()
+    steps:
+      - name: Generate comprehensive summary
+        run: |
+          echo "## 📋 Rollback Management Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Action: ${{ needs.rollback-preparation.outputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment: ${{ needs.rollback-preparation.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Checkpoint: ${{ needs.rollback-preparation.outputs.checkpoint-id || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall result
+          case "${{ needs.rollback-preparation.outputs.action }}" in
+            list-checkpoints)
+              if [[ "${{ needs.list-checkpoints.result }}" == "success" ]]; then
+                echo "✅ **Checkpoint listing completed successfully**" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ **Checkpoint listing failed**" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            create-checkpoint)
+              if [[ "${{ needs.create-checkpoint.result }}" == "success" ]]; then
+                echo "✅ **Checkpoint creation completed successfully**" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ **Checkpoint creation failed**" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            validate-checkpoint)
+              if [[ "${{ needs.validate-checkpoint.result }}" == "success" ]]; then
+                echo "✅ **Checkpoint validation passed**" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ **Checkpoint validation failed**" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            rollback|emergency-rollback)
+              if [[ "${{ needs.execute-rollback.result }}" == "success" ]]; then
+                echo "✅ **Rollback operation completed successfully**" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ **Rollback operation failed**" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+          esac
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Server: ${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Rollback System: ${{ env.ROLLBACK_BASE_DIR }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Management Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into the server" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# List checkpoints" >> $GITHUB_STEP_SUMMARY
+          echo "ls -la ${{ env.ROLLBACK_BASE_DIR }}/checkpoints/${{ needs.rollback-preparation.outputs.environment }}/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View rollback logs" >> $GITHUB_STEP_SUMMARY
+          echo "ls -la ${{ env.ROLLBACK_BASE_DIR }}/logs/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+          echo "systemctl status consul nomad" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

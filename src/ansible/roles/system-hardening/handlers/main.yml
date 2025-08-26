@@ -1,0 +1,21 @@
+---
+# Handlers for system-hardening role
+
+- name: restart ssh
+  systemd:
+    name: sshd
+    state: restarted
+
+- name: restart systemd-sysctl
+  systemd:
+    name: systemd-sysctl
+    state: restarted
+
+- name: restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+
+- name: reload ufw
+  ufw:
+    state: reloaded

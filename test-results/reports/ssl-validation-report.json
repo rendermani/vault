@@ -1,0 +1,53 @@
+{
+  "summary": {
+    "total_certificates": 4,
+    "valid_certificates": 0,
+    "invalid_certificates": 4,
+    "success_rate": "0.00%",
+    "test_duration": "202ms",
+    "timestamp": "2025-08-26T09:49:32.083Z"
+  },
+  "results": [
+    {
+      "service": "vault",
+      "endpoint": "https://vault.cloudya.net",
+      "valid": false,
+      "error": "Connection failed: connect ECONNREFUSED 65.109.81.169:443",
+      "timestamp": "2025-08-26T09:49:31.949Z"
+    },
+    {
+      "service": "consul",
+      "endpoint": "https://consul.cloudya.net",
+      "valid": false,
+      "error": "Connection failed: connect ECONNREFUSED 65.109.81.169:443",
+      "timestamp": "2025-08-26T09:49:32.013Z"
+    },
+    {
+      "service": "nomad",
+      "endpoint": "https://nomad.cloudya.net",
+      "valid": false,
+      "error": "Connection failed: getaddrinfo ENOTFOUND nomad.cloudya.net",
+      "timestamp": "2025-08-26T09:49:32.025Z"
+    },
+    {
+      "service": "traefik",
+      "endpoint": "https://traefik.cloudya.net",
+      "valid": false,
+      "error": "Connection failed: connect ECONNREFUSED 65.109.81.169:443",
+      "timestamp": "2025-08-26T09:49:32.083Z"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "HIGH",
+      "issue": "Invalid SSL certificates detected",
+      "action": "Review SSL configuration and certificate provisioning",
+      "affected_services": [
+        "vault",
+        "consul",
+        "nomad",
+        "traefik"
+      ]
+    }
+  ]
+}

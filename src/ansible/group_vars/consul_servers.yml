@@ -1,0 +1,73 @@
+---
+# Consul Server Configuration for Phase 1 Bootstrap
+# Localhost-bound, no encryption initially
+
+consul_server: true
+consul_ui_enabled: true
+
+# Phase 1: Localhost binding only for security
+consul_bind_address: "127.0.0.1"
+consul_client_address: "127.0.0.1"
+consul_advertise_address: "{{ ansible_default_ipv4.address }}"
+
+# Data and log directories
+consul_data_dir: "/opt/consul/data"
+consul_config_dir: "/etc/consul.d"
+consul_log_level: "INFO"
+consul_enable_syslog: true
+
+# Phase 1: No encryption, no ACLs yet
+consul_encrypt_enable: false
+consul_acl_enable: false
+consul_tls_enable: false
+
+# Service discovery and health checking
+consul_services: []
+consul_checks: []
+
+# Resource limits
+consul_memory_limit: "512m"
+consul_cpu_limit: "1"
+
+# Firewall rules specific to Consul servers
+consul_firewall_rules:
+  - port: 8300
+    proto: tcp
+    rule: allow
+    comment: "Consul server RPC"
+    src: "10.0.0.0/8"
+  - port: 8301
+    proto: tcp
+    rule: allow
+    comment: "Consul LAN serf TCP"
+    src: "10.0.0.0/8"
+  - port: 8301
+    proto: udp
+    rule: allow
+    comment: "Consul LAN serf UDP"
+    src: "10.0.0.0/8"
+  - port: 8302
+    proto: tcp
+    rule: allow
+    comment: "Consul WAN serf TCP"
+    src: "10.0.0.0/8"
+  - port: 8302
+    proto: udp
+    rule: allow
+    comment: "Consul WAN serf UDP"
+    src: "10.0.0.0/8"
+  - port: 8500
+    proto: tcp
+    rule: allow
+    comment: "Consul HTTP API"
+    src: "127.0.0.1"  # Phase 1: localhost only
+  - port: 8600
+    proto: tcp
+    rule: allow
+    comment: "Consul DNS"
+    src: "10.0.0.0/8"
+  - port: 8600
+    proto: udp
+    rule: allow
+    comment: "Consul DNS"
+    src: "10.0.0.0/8"

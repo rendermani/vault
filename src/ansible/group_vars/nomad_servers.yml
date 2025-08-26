@@ -1,0 +1,69 @@
+---
+# Nomad Server Configuration for Phase 1 Bootstrap
+# NO vault{} block integration yet
+
+nomad_server: true
+nomad_ui_enabled: true
+
+# Network configuration
+nomad_bind_address: "0.0.0.0"
+nomad_advertise_address: "{{ ansible_default_ipv4.address }}"
+
+# Data and log directories
+nomad_data_dir: "/opt/nomad/data"
+nomad_config_dir: "/etc/nomad.d"
+nomad_log_level: "INFO"
+nomad_enable_syslog: true
+
+# Phase 1: No TLS, no Vault integration
+nomad_tls_enable: false
+nomad_acl_enable: false
+
+# CRITICAL: NO vault{} block in Phase 1
+nomad_vault_integration: false
+
+# Server configuration
+nomad_server_bootstrap_expect: "{{ nomad_bootstrap_expect | default(3) }}"
+nomad_server_encrypt: ""  # No encryption in Phase 1
+
+# Client configuration for combined server/client nodes
+nomad_client_meta:
+  "node_class": "{{ nomad_node_class | default('general') }}"
+
+# Resource allocation
+nomad_server_memory: "1024m"
+nomad_server_cpu: "2"
+
+# Docker driver configuration
+nomad_docker_enable: true
+nomad_docker_privileged: false
+
+# Consul integration (Phase 1 basic)
+nomad_consul_enable: true
+nomad_consul_address: "127.0.0.1:8500"
+nomad_consul_server_service_name: "nomad"
+nomad_consul_client_service_name: "nomad-client"
+nomad_consul_auto_advertise: true
+
+# Firewall rules specific to Nomad servers
+nomad_firewall_rules:
+  - port: 4646
+    proto: tcp
+    rule: allow
+    comment: "Nomad HTTP API"
+    src: "10.0.0.0/8"
+  - port: 4647
+    proto: tcp
+    rule: allow
+    comment: "Nomad RPC"
+    src: "10.0.0.0/8"
+  - port: 4648
+    proto: tcp
+    rule: allow
+    comment: "Nomad serf TCP"
+    src: "10.0.0.0/8"
+  - port: 4648
+    proto: udp
+    rule: allow
+    comment: "Nomad serf UDP"
+    src: "10.0.0.0/8"

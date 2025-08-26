@@ -1,0 +1,215 @@
+---
+- name: Install and Configure Consul
+  hosts: consul_servers
+  become: yes
+  
+  vars:
+    consul_user: consul
+    consul_group: consul
+    consul_home: /opt/consul
+    consul_data_dir: /opt/consul/data
+    consul_config_dir: /etc/consul.d
+    consul_log_dir: /var/log/consul
+    consul_binary: /usr/local/bin/consul
+    
+  tasks:
+    - name: Create consul group
+      group:
+        name: "{{ consul_group }}"
+        state: present
+
+    - name: Create consul user
+      user:
+        name: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        system: yes
+        home: "{{ consul_home }}"
+        shell: /bin/false
+        create_home: no
+
+    - name: Create consul directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: '0755'
+      loop:
+        - "{{ consul_home }}"
+        - "{{ consul_data_dir }}"
+        - "{{ consul_config_dir }}"
+        - "{{ consul_log_dir }}"
+
+    - name: Download Consul
+      get_url:
+        url: "https://releases.hashicorp.com/consul/{{ consul_version }}/consul_{{ consul_version }}_linux_amd64.zip"
+        dest: "/tmp/consul_{{ consul_version }}_linux_amd64.zip"
+        mode: '0644'
+        timeout: 300
+      register: consul_download
+      retries: 3
+      delay: 10
+      until: consul_download is succeeded
+
+    - name: Check if Consul is already installed
+      stat:
+        path: "{{ consul_binary }}"
+      register: consul_installed
+
+    - name: Get installed Consul version
+      command: "{{ consul_binary }} version"
+      register: installed_consul_version
+      when: consul_installed.stat.exists
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Unzip Consul
+      unarchive:
+        src: "/tmp/consul_{{ consul_version }}_linux_amd64.zip"
+        dest: /usr/local/bin
+        owner: root
+        group: root
+        mode: '0755'
+        remote_src: yes
+      when: not consul_installed.stat.exists or (installed_consul_version.stdout is not search(consul_version))
+      notify: restart consul
+
+    - name: Set consul binary capabilities
+      capabilities:
+        path: "{{ consul_binary }}"
+        capability: cap_net_bind_service=+ep
+        state: present
+
+    - name: Generate Consul encryption key
+      shell: "{{ consul_binary }} keygen"
+      register: consul_encrypt_key_output
+      run_once: true
+      delegate_to: localhost
+      become: no
+      changed_when: false
+
+    - name: Set consul encryption key fact
+      set_fact:
+        consul_encrypt_key: "{{ consul_encrypt_key_output.stdout }}"
+
+    - name: Create consul configuration
+      copy:
+        dest: "{{ consul_config_dir }}/consul.json"
+        content: |
+          {
+            "datacenter": "{{ consul_datacenter }}",
+            "data_dir": "{{ consul_data_dir }}",
+            "log_level": "{{ consul_log_level }}",
+            "server": true,
+            "bootstrap_expect": 1,
+            "bind_addr": "{{ ansible_default_ipv4.address | default('127.0.0.1') }}",
+            "client_addr": "0.0.0.0",
+            "retry_join": ["127.0.0.1"],
+            "ui_config": {
+              "enabled": true
+            },
+            "connect": {
+              "enabled": true
+            },
+            "ports": {
+              "grpc": 8502
+            },
+            "encrypt": "{{ consul_encrypt_key }}",
+            "acl": {
+              "enabled": {{ consul_acl_enabled | default(false) | lower }},
+              "default_policy": "{{ consul_acl_default_policy | default('allow') }}",
+              "enable_token_persistence": true
+            },
+            "encrypt_verify_incoming": true,
+            "encrypt_verify_outgoing": true,
+            "verify_incoming": false,
+            "verify_outgoing": false,
+            "verify_server_hostname": false
+          }
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: '0640'
+      notify: restart consul
+
+    - name: Create consul systemd service
+      copy:
+        dest: /etc/systemd/system/consul.service
+        content: |
+          [Unit]
+          Description=Consul
+          Documentation=https://www.consul.io/
+          Requires=network-online.target
+          After=network-online.target
+          ConditionFileNotEmpty={{ consul_config_dir }}/consul.json
+
+          [Service]
+          Type=notify
+          User={{ consul_user }}
+          Group={{ consul_group }}
+          ExecStart={{ consul_binary }} agent -config-dir={{ consul_config_dir }}
+          ExecReload=/bin/kill -HUP $MAINPID
+          KillMode=process
+          Restart=on-failure
+          LimitNOFILE=65536
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=consul
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - reload systemd
+        - restart consul
+
+    - name: Create logrotate configuration for consul
+      copy:
+        dest: /etc/logrotate.d/consul
+        content: |
+          /var/log/consul/*.log {
+              daily
+              missingok
+              rotate 7
+              compress
+              notifempty
+              create 0640 {{ consul_user }} {{ consul_group }}
+              postrotate
+                  systemctl reload consul > /dev/null 2>&1 || true
+              endscript
+          }
+
+    - name: Start and enable consul service
+      systemd:
+        name: consul
+        state: started
+        enabled: yes
+
+    - name: Wait for consul to be ready
+      wait_for:
+        host: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+        port: "{{ consul_port }}"
+        timeout: 120
+        delay: 5
+
+    - name: Verify consul cluster
+      uri:
+        url: "http://{{ ansible_default_ipv4.address | default('127.0.0.1') }}:{{ consul_port }}/v1/status/leader"
+        method: GET
+        timeout: 30
+      register: consul_leader
+      retries: 10
+      delay: 6
+      until: consul_leader.status == 200
+
+    - name: Show consul cluster status
+      debug:
+        msg: "Consul leader: {{ consul_leader.json }}"
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: restart consul
+      systemd:
+        name: consul
+        state: restarted

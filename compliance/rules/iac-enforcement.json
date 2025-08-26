@@ -1,0 +1,168 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-08-26",
+  "complianceRules": {
+    "critical": {
+      "NO_SSH_WORKAROUNDS": {
+        "description": "NEVER do SSH workarounds if automation is failing",
+        "rationale": "SSH workarounds bypass IaC principles and create configuration drift",
+        "enforcement": "BLOCK_OPERATION",
+        "alternatives": [
+          "Debug Ansible playbook issues",
+          "Improve error handling in automation",
+          "Spawn analysis agents to identify root cause"
+        ],
+        "examples": {
+          "violations": [
+            "ssh user@server 'sudo systemctl start vault'",
+            "scp config.hcl user@server:/opt/vault/",
+            "ssh -t user@server 'sudo vim /etc/vault.d/vault.hcl'"
+          ],
+          "compliant": [
+            "ansible-playbook -i inventory vault-deploy.yml",
+            "terraform apply -var-file=prod.tfvars",
+            "nomad-pack run vault"
+          ]
+        }
+      },
+      "NO_DIRECT_CONFIG_CHANGES": {
+        "description": "NEVER change config files directly on the server",
+        "rationale": "Direct changes create undocumented state and prevent reproducibility",
+        "enforcement": "BLOCK_OPERATION",
+        "alternatives": [
+          "Update configuration in source control",
+          "Apply changes through Ansible",
+          "Use Terraform for infrastructure changes"
+        ],
+        "monitoredPaths": [
+          "/etc/vault.d/",
+          "/opt/vault/config/",
+          "/etc/systemd/system/",
+          "/etc/nginx/",
+          "/etc/ssl/",
+          "~/.vault-token"
+        ]
+      }
+    },
+    "high": {
+      "STICK_TO_PLAN": {
+        "description": "ALWAYS stick to the plan (Ansible → Terraform → Nomad Pack)",
+        "rationale": "Deviating from the planned sequence can cause dependency issues",
+        "enforcement": "REQUIRE_JUSTIFICATION",
+        "sequence": [
+          {
+            "phase": "1. Ansible Bootstrap",
+            "purpose": "Server preparation, basic configuration, service installation",
+            "deliverables": ["Configured servers", "Installed packages", "Basic security"]
+          },
+          {
+            "phase": "2. Terraform Infrastructure",
+            "purpose": "Infrastructure provisioning, network setup, resource allocation",
+            "deliverables": ["Cloud resources", "Network configuration", "Security groups"]
+          },
+          {
+            "phase": "3. Nomad Pack Deployment", 
+            "purpose": "Application deployment, service orchestration, scaling",
+            "deliverables": ["Running applications", "Service discovery", "Health monitoring"]
+          }
+        ]
+      },
+      "ONE_BUTTON_DEPLOYMENT": {
+        "description": "Enforce one button deployment with minimal manual interaction",
+        "rationale": "Reduces human error, ensures consistency, enables rapid recovery",
+        "enforcement": "VALIDATE_AUTOMATION",
+        "requirements": [
+          "Single command deployment",
+          "Idempotent operations",
+          "Automated rollback capability",
+          "Comprehensive health checks",
+          "Zero-downtime deployments"
+        ]
+      }
+    },
+    "medium": {
+      "SPAWN_RESEARCHERS_ON_FAILURE": {
+        "description": "ALWAYS spawn researchers and analysts if automation is failing",
+        "rationale": "Systematic analysis prevents recurring issues and improves automation",
+        "enforcement": "AUTO_SPAWN_AGENTS",
+        "triggerConditions": [
+          "Ansible playbook failure",
+          "Terraform plan/apply errors",
+          "Nomad Pack deployment issues",
+          "Service startup failures",
+          "Health check failures"
+        ],
+        "requiredAgents": [
+          "researcher: Root cause analysis",
+          "analyst: System impact assessment", 
+          "system-architect: Solution design",
+          "coder: Implementation fixes"
+        ]
+      }
+    }
+  },
+  "exemptions": {
+    "emergencyProcedures": {
+      "description": "Emergency access procedures when automation is completely broken",
+      "authorization": "Lead Engineer + Security Officer approval",
+      "documentation": "All emergency changes must be documented and reversed through automation",
+      "timeLimit": "Maximum 1 hour for emergency fixes",
+      "followUp": "Automation must be fixed within 24 hours"
+    }
+  },
+  "monitoring": {
+    "fileSystemWatchers": [
+      {
+        "path": "/etc/",
+        "recursive": true,
+        "events": ["modify", "create", "delete"],
+        "action": "LOG_AND_ALERT"
+      },
+      {
+        "path": "/opt/",
+        "recursive": true,
+        "events": ["modify", "create", "delete"], 
+        "action": "LOG_AND_ALERT"
+      }
+    ],
+    "commandMonitoring": {
+      "prohibited": [
+        "ssh.*systemctl",
+        "ssh.*service",
+        "ssh.*vim /etc/",
+        "ssh.*nano /etc/",
+        "scp.*config",
+        "rsync.*config"
+      ],
+      "action": "BLOCK_AND_REPORT"
+    },
+    "processMonitoring": {
+      "alertOn": [
+        "direct server logins",
+        "manual service restarts",
+        "configuration file edits"
+      ]
+    }
+  },
+  "reporting": {
+    "frequency": "Real-time",
+    "recipients": ["lead-engineer", "security-officer", "devops-team"],
+    "escalation": {
+      "critical": "Immediate notification + Block operation",
+      "high": "Within 5 minutes",
+      "medium": "Within 15 minutes",
+      "low": "Daily summary"
+    }
+  },
+  "training": {
+    "required": [
+      "IaC Principles and Best Practices",
+      "Ansible Playbook Development",
+      "Terraform Configuration Management",
+      "Nomad Pack Deployment Strategies",
+      "Compliance Officer System Usage"
+    ],
+    "frequency": "Quarterly",
+    "certification": "Required for server access"
+  }
+}

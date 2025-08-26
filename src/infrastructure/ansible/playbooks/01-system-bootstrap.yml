@@ -1,0 +1,85 @@
+---
+# Phase 1: System Bootstrap Playbook
+# Based on proven patterns from /infrastructure/scripts/bootstrap.sh
+
+- name: System Bootstrap and Hardening
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Update package cache
+      package:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+    
+    - name: Install essential packages
+      package:
+        name:
+          - curl
+          - wget
+          - unzip
+          - jq
+          - htop
+          - vim
+          - git
+        state: present
+
+  roles:
+    - role: system-hardening
+      tags: ['security', 'hardening']
+    
+    - role: docker-installation  
+      tags: ['docker']
+    
+    - role: consul-installation
+      when: inventory_hostname in groups['consul_servers']
+      tags: ['consul']
+    
+    - role: nomad-installation-basic
+      when: inventory_hostname in groups['nomad_servers'] or inventory_hostname in groups['nomad_clients']
+      tags: ['nomad']
+
+  post_tasks:
+    - name: Verify system bootstrap
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - docker
+        - consul
+        - nomad
+      when: 
+        - item == 'docker' or
+          (item == 'consul' and inventory_hostname in groups['consul_servers']) or
+          (item == 'nomad' and (inventory_hostname in groups['nomad_servers'] or inventory_hostname in groups['nomad_clients']))
+
+- name: Configure firewall rules
+  hosts: all
+  become: yes
+  tasks:
+    - name: Configure UFW firewall
+      ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        src: "{{ item.src | default('10.0.0.0/8') }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22", comment: "SSH" }
+        - { port: "8300", comment: "Consul server RPC" }
+        - { port: "8301", comment: "Consul LAN serf" }
+        - { port: "8302", comment: "Consul WAN serf" }  
+        - { port: "8500", comment: "Consul HTTP API" }
+        - { port: "8600", comment: "Consul DNS", proto: "udp" }
+        - { port: "4646", comment: "Nomad HTTP API" }
+        - { port: "4647", comment: "Nomad RPC" }
+        - { port: "4648", comment: "Nomad serf" }
+      when: "'consul_servers' in group_names or 'nomad_servers' in group_names or 'nomad_clients' in group_names"
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+        policy: deny
+        direction: incoming

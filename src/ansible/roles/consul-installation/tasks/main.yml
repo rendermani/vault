@@ -1,0 +1,169 @@
+---
+# Consul Installation Tasks for Phase 1 Bootstrap
+
+- name: Create consul user and group
+  group:
+    name: "{{ consul_group }}"
+    system: yes
+    state: present
+
+- name: Create consul user
+  user:
+    name: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+    system: yes
+    shell: /bin/false
+    home: "{{ consul_home_dir }}"
+    createhome: no
+    state: present
+
+- name: Create consul directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+    mode: '0755'
+  loop:
+    - "{{ consul_home_dir }}"
+    - "{{ consul_data_dir }}"
+    - "{{ consul_config_dir }}"
+    - "{{ consul_log_dir }}"
+    - "{{ consul_tls_dir }}"
+
+- name: Check if consul binary exists and get version
+  command: /usr/local/bin/consul version
+  register: consul_installed_version
+  failed_when: false
+  changed_when: false
+
+- name: Download and install consul
+  block:
+    - name: Create temporary directory for consul download
+      tempfile:
+        state: directory
+        suffix: consul
+      register: consul_temp_dir
+
+    - name: Download consul zip file
+      get_url:
+        url: "{{ consul_binary_url }}"
+        dest: "{{ consul_temp_dir.path }}/consul.zip"
+        mode: '0644'
+        timeout: 30
+
+    - name: Unzip consul binary
+      unarchive:
+        src: "{{ consul_temp_dir.path }}/consul.zip"
+        dest: "{{ consul_temp_dir.path }}"
+        remote_src: yes
+
+    - name: Install consul binary
+      copy:
+        src: "{{ consul_temp_dir.path }}/consul"
+        dest: /usr/local/bin/consul
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: yes
+      notify: restart consul
+
+    - name: Clean up temporary directory
+      file:
+        path: "{{ consul_temp_dir.path }}"
+        state: absent
+
+  when: >
+    consul_installed_version.rc != 0 or
+    consul_version not in consul_installed_version.stdout
+
+- name: Generate consul configuration
+  template:
+    src: consul.hcl.j2
+    dest: "{{ consul_config_dir }}/consul.hcl"
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+    mode: '0640'
+    backup: yes
+  notify: restart consul
+
+- name: Create consul systemd service file
+  template:
+    src: consul.service.j2
+    dest: /etc/systemd/system/consul.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart consul
+
+- name: Create consul environment file
+  template:
+    src: consul.env.j2
+    dest: /etc/consul.d/consul.env
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+    mode: '0640'
+  notify: restart consul
+
+- name: Configure consul log rotation
+  template:
+    src: consul.logrotate.j2
+    dest: /etc/logrotate.d/consul
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Set up consul data directory permissions
+  file:
+    path: "{{ consul_data_dir }}"
+    state: directory
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+    mode: '0755'
+    recurse: yes
+
+- name: Enable consul service
+  systemd:
+    name: consul
+    enabled: yes
+    daemon_reload: yes
+  
+- name: Start consul service
+  systemd:
+    name: consul
+    state: started
+  register: consul_start_result
+
+- name: Wait for consul to start
+  wait_for:
+    port: "{{ consul_ports.http }}"
+    host: "{{ consul_client_address }}"
+    delay: 5
+    timeout: 60
+    state: started
+  when: consul_start_result is changed
+
+- name: Verify consul installation
+  uri:
+    url: "http://{{ consul_client_address }}:{{ consul_ports.http }}/v1/status/leader"
+    method: GET
+    return_content: yes
+  register: consul_leader_check
+  retries: 5
+  delay: 10
+
+- name: Display consul status
+  debug:
+    msg: 
+      - "Consul installation completed successfully"
+      - "Leader: {{ consul_leader_check.content | default('Not available') }}"
+      - "Version: {{ consul_version }}"
+      - "Datacenter: {{ consul_datacenter }}"
+      - "Bind Address: {{ consul_bind_address }} (Phase 1: localhost only)"
+
+- name: Fail if consul is not responding
+  fail:
+    msg: "Consul is not responding to HTTP requests on {{ consul_client_address }}:{{ consul_ports.http }}"
+  when: consul_leader_check is failed
